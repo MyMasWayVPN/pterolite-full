@@ -233,7 +233,83 @@ update_frontend() {
     log_info "Frontend updated successfully"
 }
 
-# Update nginx configuration
+# Check SSL certificate status
+check_ssl_status() {
+    log_step "Checking SSL certificate status..."
+    
+    SSL_CERT_PATH="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
+    SSL_KEY_PATH="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
+    
+    if [[ -f "$SSL_CERT_PATH" && -f "$SSL_KEY_PATH" ]]; then
+        log_info "SSL certificate files found"
+        
+        # Check certificate expiry
+        EXPIRY_DATE=$(openssl x509 -enddate -noout -in "$SSL_CERT_PATH" | cut -d= -f2)
+        EXPIRY_TIMESTAMP=$(date -d "$EXPIRY_DATE" +%s)
+        CURRENT_TIMESTAMP=$(date +%s)
+        DAYS_UNTIL_EXPIRY=$(( (EXPIRY_TIMESTAMP - CURRENT_TIMESTAMP) / 86400 ))
+        
+        if [[ $DAYS_UNTIL_EXPIRY -gt 0 ]]; then
+            log_info "SSL certificate is valid for $DAYS_UNTIL_EXPIRY more days"
+            SSL_STATUS="valid"
+        else
+            log_warn "SSL certificate has expired"
+            SSL_STATUS="expired"
+        fi
+    else
+        log_warn "SSL certificate files not found"
+        SSL_STATUS="missing"
+    fi
+}
+
+# Setup or fix SSL certificate
+setup_ssl_certificate() {
+    log_step "Setting up SSL certificate..."
+    
+    # Check if certbot is installed
+    if ! command -v certbot >/dev/null 2>&1; then
+        log_info "Installing certbot..."
+        apt-get update
+        apt-get install -y certbot python3-certbot-nginx
+    fi
+    
+    # Validate domain format
+    if [[ ! "$DOMAIN" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}$ ]]; then
+        log_warn "Invalid domain format: $DOMAIN. Skipping SSL setup."
+        return 1
+    fi
+    
+    case $SSL_STATUS in
+        "missing")
+            log_info "Installing new SSL certificate..."
+            if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --email "admin@$DOMAIN" --redirect; then
+                log_info "SSL certificate installed successfully"
+                SSL_STATUS="valid"
+            else
+                log_warn "Failed to install SSL certificate automatically"
+                log_warn "You can run it manually later: certbot --nginx -d $DOMAIN"
+                return 1
+            fi
+            ;;
+        "expired")
+            log_info "Renewing expired SSL certificate..."
+            if certbot renew --nginx; then
+                log_info "SSL certificate renewed successfully"
+                SSL_STATUS="valid"
+            else
+                log_error "Failed to renew SSL certificate"
+                return 1
+            fi
+            ;;
+        "valid")
+            log_info "SSL certificate is already valid"
+            ;;
+    esac
+    
+    return 0
+}
+
+# Update nginx configuration with SSL support
 update_nginx_config() {
     log_step "Updating nginx configuration..."
     
@@ -245,9 +321,79 @@ update_nginx_config() {
         log_warn "Could not find API key, using default"
     fi
     
-    # Create updated nginx configuration
-    log_info "Creating updated nginx configuration..."
-    cat > /etc/nginx/sites-available/pterolite.conf <<EOF
+    # Check SSL status first
+    check_ssl_status
+    
+    # Create nginx configuration based on SSL status
+    if [[ "$SSL_STATUS" == "valid" ]]; then
+        log_info "Creating nginx configuration with SSL support..."
+        cat > /etc/nginx/sites-available/pterolite.conf <<EOF
+# HTTP to HTTPS redirect
+server {
+    listen 80;
+    server_name $DOMAIN;
+    return 301 https://\$server_name\$request_uri;
+}
+
+# HTTPS server
+server {
+    listen 443 ssl http2;
+    server_name $DOMAIN;
+    root $WEB_ROOT;
+    index index.html;
+
+    # SSL Configuration
+    ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+
+    # Serve static files (React frontend)
+    location / {
+        try_files \$uri \$uri/ /index.html;
+    }
+
+    # API proxy untuk web panel (tanpa auth requirement)
+    location /api/ {
+        proxy_pass http://127.0.0.1:8088/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # API eksternal dengan authentication (untuk akses programmatic)
+    location /external-api/ {
+        proxy_pass http://127.0.0.1:8088/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "no-referrer-when-downgrade" always;
+    add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+}
+EOF
+    else
+        log_info "Creating nginx configuration for HTTP only..."
+        cat > /etc/nginx/sites-available/pterolite.conf <<EOF
 server {
     listen 80;
     server_name $DOMAIN;
@@ -293,6 +439,7 @@ server {
     add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
 }
 EOF
+    fi
     
     # Test nginx configuration
     log_info "Testing nginx configuration..."
@@ -308,6 +455,17 @@ EOF
             nginx -t && systemctl reload nginx
         fi
         exit 1
+    fi
+    
+    # Try to setup SSL certificate if not already valid
+    if [[ "$SSL_STATUS" != "valid" ]]; then
+        log_info "Attempting to setup SSL certificate..."
+        if setup_ssl_certificate; then
+            log_info "SSL setup successful, updating nginx configuration..."
+            update_nginx_config  # Recursive call to update config with SSL
+        else
+            log_warn "SSL setup failed, continuing with HTTP configuration"
+        fi
     fi
 }
 
@@ -443,16 +601,29 @@ verify_installation() {
         FRONTEND_STATUS="❌ Missing"
     fi
     
-    # Test web access
+    # Test web access (both HTTP and HTTPS if available)
     log_info "Testing web access..."
     sleep 2
     
     if curl -s -o /dev/null -w "%{http_code}" http://localhost 2>/dev/null | grep -q "200\|301\|302"; then
-        log_info "✅ Local web access working"
+        log_info "✅ Local HTTP access working"
         HTTP_ACCESS="✅ Working"
     else
-        log_warn "⚠️ Local web access test failed"
+        log_warn "⚠️ Local HTTP access test failed"
         HTTP_ACCESS="⚠️ Failed"
+    fi
+    
+    # Test HTTPS if SSL is configured
+    if [[ "$SSL_STATUS" == "valid" ]]; then
+        if curl -s -o /dev/null -w "%{http_code}" "https://$DOMAIN" 2>/dev/null | grep -q "200"; then
+            log_info "✅ HTTPS access working"
+            HTTPS_ACCESS="✅ Working"
+        else
+            log_warn "⚠️ HTTPS access test failed"
+            HTTPS_ACCESS="⚠️ Failed"
+        fi
+    else
+        HTTPS_ACCESS="N/A (No SSL)"
     fi
     
     # Test backend API
@@ -487,12 +658,21 @@ show_summary() {
     printf "%-20s %s\n" "Nginx Server:" "$NGINX_STATUS"
     printf "%-20s %s\n" "Frontend Files:" "$FRONTEND_STATUS"
     printf "%-20s %s\n" "HTTP Access:" "$HTTP_ACCESS"
+    printf "%-20s %s\n" "HTTPS Access:" "$HTTPS_ACCESS"
     printf "%-20s %s\n" "API Status:" "$API_STATUS"
+    printf "%-20s %s\n" "SSL Status:" "$SSL_STATUS"
     
     echo ""
     echo "🔧 System Information:"
     echo "================================"
     echo "   • Domain: $DOMAIN"
+    if [[ "$SSL_STATUS" == "valid" ]]; then
+        echo "   • Access URL: https://$DOMAIN (SSL enabled)"
+        echo "   • HTTP redirects to HTTPS automatically"
+    else
+        echo "   • Access URL: http://$DOMAIN (HTTP only)"
+        echo "   • SSL Status: $SSL_STATUS"
+    fi
     echo "   • Install Directory: $INSTALL_DIR"
     echo "   • Web Root: $WEB_ROOT"
     echo "   • API Key: $API_KEY"
@@ -516,6 +696,13 @@ show_summary() {
     echo "   • Restart backend: systemctl restart pterolite"
     echo "   • Check backend status: systemctl status pterolite"
     echo "   • Check nginx status: systemctl status nginx"
+    if [[ "$SSL_STATUS" != "valid" ]]; then
+        echo "   • Setup SSL: certbot --nginx -d $DOMAIN"
+        echo "   • Renew SSL: certbot renew"
+    else
+        echo "   • Renew SSL: certbot renew"
+        echo "   • Check SSL: openssl x509 -in /etc/letsencrypt/live/$DOMAIN/fullchain.pem -text -noout"
+    fi
     
     echo ""
     echo "💾 Backup Information:"
