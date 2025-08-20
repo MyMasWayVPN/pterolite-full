@@ -249,33 +249,33 @@ if __name__ == "__main__":
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-800 mb-2">⚡ Script Executor & Process Manager</h2>
-        <p className="text-gray-600">Execute JavaScript and Python scripts with multi-process support and real-time monitoring</p>
+        <h2 className="text-2xl font-bold text-white mb-2">⚡ Script Executor & Process Manager</h2>
+        <p className="text-gray-300">Execute JavaScript and Python scripts with multi-process support and real-time monitoring</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Script Editor Section */}
         <div className="lg:col-span-2 space-y-4">
-          <div className="bg-white rounded-lg shadow-md p-4">
+          <div className="bg-dark-secondary rounded-lg shadow-dark p-4">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">Code Editor</h3>
+              <h3 className="text-lg font-semibold text-white">Code Editor</h3>
               <div className="flex space-x-2">
                 <button
                   onClick={() => setActiveTab('javascript')}
-                  className={`px-4 py-2 rounded-md ${
+                  className={`px-4 py-2 rounded-md transition-colors ${
                     activeTab === 'javascript'
-                      ? 'bg-yellow-500 text-white'
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      ? 'bg-yellow-600 text-white'
+                      : 'bg-dark-tertiary text-gray-300 hover:bg-gray-600'
                   }`}
                 >
                   JavaScript
                 </button>
                 <button
                   onClick={() => setActiveTab('python')}
-                  className={`px-4 py-2 rounded-md ${
+                  className={`px-4 py-2 rounded-md transition-colors ${
                     activeTab === 'python'
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-dark-tertiary text-gray-300 hover:bg-gray-600'
                   }`}
                 >
                   Python
@@ -285,35 +285,35 @@ if __name__ == "__main__":
 
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Working Directory</label>
+                <label className="block text-sm font-medium text-gray-300 mb-1">Working Directory</label>
                 <input
                   type="text"
                   value={workingDir}
                   onChange={(e) => setWorkingDir(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 bg-dark-tertiary border border-dark text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="/tmp/pterolite-files"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Script Name (for persistent processes)</label>
+                <label className="block text-sm font-medium text-gray-300 mb-1">Script Name (for persistent processes)</label>
                 <input
                   type="text"
                   value={scriptName}
                   onChange={(e) => setScriptName(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 bg-dark-tertiary border border-dark text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder={`Optional name for ${activeTab} script`}
                 />
               </div>
 
               <div>
                 <div className="flex justify-between items-center mb-2">
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-300">
                     {activeTab === 'javascript' ? 'JavaScript' : 'Python'} Code
                   </label>
                   <button
                     onClick={() => loadExample(activeTab)}
-                    className="text-sm text-blue-600 hover:text-blue-800"
+                    className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
                   >
                     Load Example
                   </button>
@@ -321,7 +321,7 @@ if __name__ == "__main__":
                 <textarea
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
-                  className="w-full h-64 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm code-editor"
+                  className="w-full h-64 px-3 py-2 bg-dark-tertiary border border-dark text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm resize-none"
                   placeholder={`Enter your ${activeTab} code here...`}
                 />
               </div>
@@ -330,20 +330,20 @@ if __name__ == "__main__":
                 <button
                   onClick={handleExecuteOnce}
                   disabled={isLoading || !code.trim()}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {isLoading ? 'Executing...' : 'Execute Once'}
                 </button>
                 <button
                   onClick={handleRunPersistent}
                   disabled={isLoading || !code.trim()}
-                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   Run Persistent
                 </button>
                 <button
                   onClick={() => setCode('')}
-                  className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
+                  className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors"
                 >
                   Clear Code
                 </button>
@@ -352,8 +352,8 @@ if __name__ == "__main__":
           </div>
 
           {/* Output Section */}
-          <div className="bg-white rounded-lg shadow-md p-4">
-            <h3 className="text-lg font-semibold mb-4">Execution Output</h3>
+          <div className="bg-dark-secondary rounded-lg shadow-dark p-4">
+            <h3 className="text-lg font-semibold mb-4 text-white">Execution Output</h3>
             <div 
               ref={outputRef}
               className="bg-black text-green-400 p-4 rounded-md h-64 overflow-y-auto font-mono text-sm custom-scrollbar"
@@ -369,9 +369,9 @@ if __name__ == "__main__":
 
         {/* Process Monitor Section */}
         <div className="space-y-4">
-          <div className="bg-white rounded-lg shadow-md p-4">
+          <div className="bg-dark-secondary rounded-lg shadow-dark p-4">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">Running Scripts</h3>
+              <h3 className="text-lg font-semibold text-white">Running Scripts</h3>
               <div className="flex items-center space-x-2">
                 <label className="flex items-center">
                   <input
@@ -380,11 +380,11 @@ if __name__ == "__main__":
                     onChange={(e) => setAutoRefresh(e.target.checked)}
                     className="mr-1"
                   />
-                  <span className="text-sm">Auto-refresh</span>
+                  <span className="text-sm text-gray-300">Auto-refresh</span>
                 </label>
                 <button
                   onClick={loadProcesses}
-                  className="px-2 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+                  className="px-2 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
                 >
                   Refresh
                 </button>
@@ -393,26 +393,29 @@ if __name__ == "__main__":
 
             <div className="space-y-2 max-h-64 overflow-y-auto">
               {Object.keys(processes).length === 0 ? (
-                <div className="text-gray-500 text-sm">No running scripts</div>
+                <div className="text-gray-400 text-sm text-center py-8">
+                  <div className="text-4xl mb-2">📜</div>
+                  <p>No running scripts</p>
+                </div>
               ) : (
                 Object.values(processes).map((process) => (
                   <div
                     key={process.id}
                     className={`p-3 border rounded-md cursor-pointer transition-colors ${
                       selectedProcess === process.id 
-                        ? 'border-blue-500 bg-blue-50' 
-                        : 'border-gray-200 hover:bg-gray-50'
+                        ? 'border-blue-500 bg-blue-900 bg-opacity-30' 
+                        : 'border-dark bg-dark-tertiary hover:bg-gray-600'
                     }`}
                     onClick={() => handleSelectProcess(process.id)}
                   >
                     <div className="flex justify-between items-start">
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium text-sm truncate">{process.info.name}</div>
+                        <div className="font-medium text-sm truncate text-white">{process.info.name}</div>
                         <div className="flex items-center space-x-2">
                           <span className={`text-xs px-2 py-1 rounded ${
                             process.info.language === 'javascript' 
-                              ? 'bg-yellow-100 text-yellow-800' 
-                              : 'bg-blue-100 text-blue-800'
+                              ? 'bg-yellow-900 text-yellow-300 border border-yellow-700' 
+                              : 'bg-blue-900 text-blue-300 border border-blue-700'
                           }`}>
                             {process.info.language}
                           </span>
@@ -420,7 +423,7 @@ if __name__ == "__main__":
                             {process.status}
                           </span>
                         </div>
-                        <div className="text-xs text-gray-500">
+                        <div className="text-xs text-gray-400">
                           {new Date(process.startTime).toLocaleTimeString()}
                         </div>
                       </div>
@@ -431,7 +434,7 @@ if __name__ == "__main__":
                               e.stopPropagation();
                               handleKillProcess(process.id);
                             }}
-                            className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                            className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
                           >
                             Kill
                           </button>
@@ -441,7 +444,7 @@ if __name__ == "__main__":
                             e.stopPropagation();
                             handleRemoveProcess(process.id);
                           }}
-                          className="px-2 py-1 text-xs bg-gray-600 text-white rounded hover:bg-gray-700"
+                          className="px-2 py-1 text-xs bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors"
                         >
                           Remove
                         </button>
@@ -455,8 +458,8 @@ if __name__ == "__main__":
 
           {/* Script Logs */}
           {selectedProcess && (
-            <div className="bg-white rounded-lg shadow-md p-4">
-              <h3 className="text-lg font-semibold mb-4">
+            <div className="bg-dark-secondary rounded-lg shadow-dark p-4">
+              <h3 className="text-lg font-semibold mb-4 text-white">
                 Script Logs: {processes[selectedProcess]?.info.name}
               </h3>
               <div className="bg-black text-white p-3 rounded-md h-64 overflow-y-auto font-mono text-xs custom-scrollbar">
@@ -482,14 +485,14 @@ if __name__ == "__main__":
       </div>
 
       {/* Help Section */}
-      <div className="mt-6 bg-blue-50 rounded-lg p-4">
-        <h4 className="font-semibold text-blue-800 mb-2">💡 Tips for Multi-Script Running:</h4>
-        <ul className="text-sm text-blue-700 space-y-1">
-          <li>• <strong>Execute Once:</strong> Run script and get immediate output (good for testing)</li>
-          <li>• <strong>Run Persistent:</strong> Start script as background process (good for servers, monitors)</li>
-          <li>• <strong>Process Monitor:</strong> View all running scripts and their real-time logs</li>
-          <li>• <strong>Working Directory:</strong> Scripts can access files in the specified directory</li>
-          <li>• <strong>Examples:</strong> Click "Load Example" to see sample persistent scripts</li>
+      <div className="mt-6 bg-blue-900 bg-opacity-30 border border-blue-700 rounded-lg p-4">
+        <h4 className="font-semibold text-blue-300 mb-2">💡 Tips for Multi-Script Running:</h4>
+        <ul className="text-sm text-blue-200 space-y-1">
+          <li>• <strong className="text-blue-300">Execute Once:</strong> Run script and get immediate output (good for testing)</li>
+          <li>• <strong className="text-blue-300">Run Persistent:</strong> Start script as background process (good for servers, monitors)</li>
+          <li>• <strong className="text-blue-300">Process Monitor:</strong> View all running scripts and their real-time logs</li>
+          <li>• <strong className="text-blue-300">Working Directory:</strong> Scripts can access files in the specified directory</li>
+          <li>• <strong className="text-blue-300">Examples:</strong> Click "Load Example" to see sample persistent scripts</li>
         </ul>
       </div>
     </div>

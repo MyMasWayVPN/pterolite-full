@@ -132,79 +132,83 @@ export default function FileManager({ selectedContainer, containerFolder }) {
 
   return (
     <div className="p-4">
-      <h2 className="text-2xl font-bold mb-4">File Manager</h2>
+      <h2 className="text-2xl font-bold mb-4 text-white">📁 File Manager</h2>
       
       {/* Current Path */}
-      <div className="mb-4 p-2 bg-gray-100 rounded">
-        <strong>Current Path:</strong> {currentPath}
+      <div className="mb-4 p-3 bg-dark-secondary rounded-lg border border-dark">
+        <strong className="text-white">Current Path:</strong> 
+        <code className="ml-2 text-blue-400 bg-dark-tertiary px-2 py-1 rounded">{currentPath}</code>
         {currentPath !== '/' && (
           <button 
             onClick={goUp}
-            className="ml-4 px-2 py-1 bg-blue-500 text-white rounded text-sm"
+            className="ml-4 px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors"
           >
-            Go Up
+            ⬆️ Go Up
           </button>
         )}
       </div>
 
       {/* Upload Form */}
-      <form onSubmit={uploadFileHandler} className="mb-4 p-4 border rounded">
-        <h3 className="font-bold mb-2">Upload File</h3>
+      <form onSubmit={uploadFileHandler} className="mb-6 p-4 bg-dark-secondary border border-dark rounded-lg">
+        <h3 className="font-bold mb-3 text-white">📤 Upload File</h3>
         <input
           type="file"
           onChange={(e) => setUploadFile(e.target.files[0])}
-          className="mb-2"
+          className="mb-3 w-full px-3 py-2 bg-dark-tertiary border border-dark text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
         <button
           type="submit"
           disabled={!uploadFile}
-          className="px-4 py-2 bg-green-500 text-white rounded disabled:bg-gray-300"
+          className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors"
         >
           Upload
         </button>
-        <p className="text-sm text-gray-600 mt-1">
-          ZIP files will be automatically extracted if you choose to.
+        <p className="text-sm text-gray-400 mt-2">
+          💡 ZIP files will be automatically extracted if you choose to.
         </p>
       </form>
 
       {/* File List */}
       {loading ? (
-        <p>Loading files...</p>
+        <div className="text-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400 mx-auto mb-4"></div>
+          <p className="text-gray-300">Loading files...</p>
+        </div>
       ) : (
-        <div className="border rounded">
+        <div className="bg-dark-secondary border border-dark rounded-lg overflow-hidden">
           <table className="w-full">
-            <thead className="bg-gray-50">
+            <thead className="bg-dark-tertiary">
               <tr>
-                <th className="text-left p-2">Name</th>
-                <th className="text-left p-2">Size</th>
-                <th className="text-left p-2">Modified</th>
-                <th className="text-left p-2">Actions</th>
+                <th className="text-left p-3 text-white font-medium">Name</th>
+                <th className="text-left p-3 text-white font-medium">Size</th>
+                <th className="text-left p-3 text-white font-medium">Modified</th>
+                <th className="text-left p-3 text-white font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
               {files.map((file, index) => (
-                <tr key={index} className="border-t hover:bg-gray-50">
-                  <td className="p-2">
-                    <span className={file.isDirectory ? 'font-bold text-blue-600' : ''}>
+                <tr key={index} className="border-t border-dark hover:bg-dark-tertiary transition-colors">
+                  <td className="p-3">
+                    <span className={file.isDirectory ? 'font-bold text-blue-400' : 'text-gray-300'}>
                       {file.isDirectory ? '📁' : '📄'} {file.name}
                     </span>
                   </td>
-                  <td className="p-2">
+                  <td className="p-3 text-gray-300">
                     {file.isDirectory ? '-' : formatFileSize(file.size)}
                   </td>
-                  <td className="p-2">
+                  <td className="p-3 text-gray-300">
                     {new Date(file.modified).toLocaleString()}
                   </td>
-                  <td className="p-2">
+                  <td className="p-3">
                     <button
                       onClick={() => openFile(file)}
-                      className="px-2 py-1 bg-blue-500 text-white rounded text-sm mr-2"
+                      className="px-3 py-1 bg-blue-600 text-white rounded text-sm mr-2 hover:bg-blue-700 transition-colors"
                     >
                       {file.isDirectory ? 'Open' : 'Edit'}
                     </button>
                     <button
                       onClick={() => deleteFile(file)}
-                      className="px-2 py-1 bg-red-500 text-white rounded text-sm"
+                      className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700 transition-colors"
                     >
                       Delete
                     </button>
@@ -218,29 +222,29 @@ export default function FileManager({ selectedContainer, containerFolder }) {
 
       {/* File Editor Modal */}
       {showEditor && selectedFile && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg w-4/5 h-4/5 flex flex-col">
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+          <div className="bg-dark-secondary border border-dark p-6 rounded-lg w-4/5 h-4/5 flex flex-col">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold">Editing: {selectedFile.name}</h3>
+              <h3 className="text-lg font-bold text-white">✏️ Editing: {selectedFile.name}</h3>
               <div>
                 <button
                   onClick={saveFile}
-                  className="px-4 py-2 bg-green-500 text-white rounded mr-2"
+                  className="px-4 py-2 bg-green-600 text-white rounded mr-2 hover:bg-green-700 transition-colors"
                 >
-                  Save
+                  💾 Save
                 </button>
                 <button
                   onClick={() => setShowEditor(false)}
-                  className="px-4 py-2 bg-gray-500 text-white rounded"
+                  className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors"
                 >
-                  Close
+                  ✕ Close
                 </button>
               </div>
             </div>
             <textarea
               value={fileContent}
               onChange={(e) => setFileContent(e.target.value)}
-              className="flex-1 w-full p-2 border rounded font-mono text-sm"
+              className="flex-1 w-full p-3 bg-dark-tertiary border border-dark text-white rounded font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
               placeholder="File content..."
             />
           </div>

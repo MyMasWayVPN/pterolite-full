@@ -198,15 +198,15 @@ const ContainerSelector = ({ onContainerSelect, selectedContainer }) => {
 
         {/* Selected Container Info */}
         {selectedContainer && (
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+          <div className="bg-blue-900 bg-opacity-30 border border-blue-700 rounded-lg p-4 mb-6">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-semibold text-blue-900">
+                <h3 className="text-lg font-semibold text-blue-300">
                   📁 Current Container: {selectedContainer.Names?.[0]?.replace('/', '') || 'Unnamed'}
                 </h3>
-                <p className="text-blue-700">
+                <p className="text-blue-200">
                   <span className="font-medium">Image:</span> {selectedContainer.Image} | 
-                  <span className="font-medium ml-2">Folder:</span> <code className="bg-blue-100 px-2 py-1 rounded">{getContainerFolder(selectedContainer)}</code>
+                  <span className="font-medium ml-2">Folder:</span> <code className="bg-blue-800 bg-opacity-50 px-2 py-1 rounded text-blue-300">{getContainerFolder(selectedContainer)}</code>
                 </p>
               </div>
               <span className={`px-3 py-1 rounded-full text-sm font-medium border ${getContainerStatusColor(selectedContainer.State)}`}>
@@ -223,23 +223,23 @@ const ContainerSelector = ({ onContainerSelect, selectedContainer }) => {
             return (
               <div
                 key={container.Id}
-                className={`bg-white rounded-lg shadow-md p-6 cursor-pointer transition-all duration-200 hover:shadow-lg ${
-                  isSelected ? 'ring-2 ring-blue-500 border-blue-200' : 'border border-gray-200'
+                className={`bg-dark-secondary rounded-lg shadow-dark p-6 cursor-pointer transition-all duration-200 hover:shadow-lg ${
+                  isSelected ? 'ring-2 ring-blue-500 border-blue-500' : 'border border-dark hover:border-blue-600'
                 }`}
                 onClick={() => onContainerSelect(container)}
               >
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-1">
+                    <h3 className="text-lg font-semibold text-white mb-1">
                       {container.Names?.[0]?.replace('/', '') || 'Unnamed Container'}
                     </h3>
-                    <p className="text-sm text-gray-600 mb-2">{container.Image}</p>
+                    <p className="text-sm text-gray-300 mb-2">{container.Image}</p>
                     <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getContainerStatusColor(container.State)}`}>
                       {container.State}
                     </span>
                   </div>
                   {isSelected && (
-                    <div className="text-blue-500">
+                    <div className="text-blue-400">
                       <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                       </svg>
@@ -247,7 +247,7 @@ const ContainerSelector = ({ onContainerSelect, selectedContainer }) => {
                   )}
                 </div>
 
-                <div className="text-sm text-gray-500 mb-4">
+                <div className="text-sm text-gray-400 mb-4">
                   <p><span className="font-medium">Folder:</span> {getContainerFolder(container)}</p>
                   <p><span className="font-medium">ID:</span> {container.Id.substring(0, 12)}</p>
                 </div>
@@ -261,7 +261,7 @@ const ContainerSelector = ({ onContainerSelect, selectedContainer }) => {
                             e.stopPropagation();
                             handleContainerAction(container.Id, 'restart');
                           }}
-                          className="flex-1 px-3 py-2 text-sm bg-yellow-600 text-white rounded hover:bg-yellow-700"
+                          className="flex-1 px-3 py-2 text-sm bg-yellow-600 text-white rounded hover:bg-yellow-700 transition-colors"
                         >
                           Restart
                         </button>
@@ -270,7 +270,7 @@ const ContainerSelector = ({ onContainerSelect, selectedContainer }) => {
                             e.stopPropagation();
                             handleContainerAction(container.Id, 'stop');
                           }}
-                          className="flex-1 px-3 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700"
+                          className="flex-1 px-3 py-2 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
                         >
                           Stop
                         </button>
@@ -281,7 +281,7 @@ const ContainerSelector = ({ onContainerSelect, selectedContainer }) => {
                           e.stopPropagation();
                           handleContainerAction(container.Id, 'start');
                         }}
-                        className="flex-1 px-3 py-2 text-sm bg-green-600 text-white rounded hover:bg-green-700"
+                        className="flex-1 px-3 py-2 text-sm bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
                       >
                         Start
                       </button>
@@ -292,7 +292,7 @@ const ContainerSelector = ({ onContainerSelect, selectedContainer }) => {
                       e.stopPropagation();
                       handleContainerAction(container.Id, 'delete');
                     }}
-                    className="w-full px-3 py-2 text-sm bg-gray-600 text-white rounded hover:bg-gray-700"
+                    className="w-full px-3 py-2 text-sm bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors"
                   >
                     🗑️ Delete
                   </button>
@@ -303,13 +303,13 @@ const ContainerSelector = ({ onContainerSelect, selectedContainer }) => {
 
           {/* Create New Container Card */}
           <div
-            className="bg-white rounded-lg shadow-md p-6 cursor-pointer transition-all duration-200 hover:shadow-lg border-2 border-dashed border-gray-300 hover:border-blue-400"
+            className="bg-dark-secondary rounded-lg shadow-dark p-6 cursor-pointer transition-all duration-200 hover:shadow-lg border-2 border-dashed border-gray-600 hover:border-blue-400"
             onClick={() => setShowCreateForm(true)}
           >
             <div className="text-center">
               <div className="text-4xl text-gray-400 mb-4">➕</div>
-              <h3 className="text-lg font-semibold text-gray-700 mb-2">Create New Container</h3>
-              <p className="text-sm text-gray-500">Click to create a new container with custom configuration</p>
+              <h3 className="text-lg font-semibold text-gray-300 mb-2">Create New Container</h3>
+              <p className="text-sm text-gray-400">Click to create a new container with custom configuration</p>
             </div>
           </div>
         </div>
@@ -317,12 +317,12 @@ const ContainerSelector = ({ onContainerSelect, selectedContainer }) => {
         {/* No Containers Message */}
         {containers.length === 0 && (
           <div className="text-center py-12">
-            <div className="text-6xl text-gray-300 mb-4">🐳</div>
-            <h3 className="text-xl font-semibold text-gray-700 mb-2">No Containers Found</h3>
-            <p className="text-gray-500 mb-6">Create your first container to get started with PteroLite</p>
+            <div className="text-6xl text-gray-400 mb-4">🐳</div>
+            <h3 className="text-xl font-semibold text-white mb-2">No Containers Found</h3>
+            <p className="text-gray-400 mb-6">Create your first container to get started with PteroLite</p>
             <button
               onClick={() => setShowCreateForm(true)}
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
+              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors"
             >
               Create First Container
             </button>
@@ -346,13 +346,13 @@ const ContainerSelector = ({ onContainerSelect, selectedContainer }) => {
 
         {/* Create Container Modal */}
         {showCreateForm && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+          <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+            <div className="bg-dark-secondary rounded-lg p-6 w-full max-w-md mx-4 border border-dark">
               <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold">Create New Container</h3>
+                <h3 className="text-lg font-semibold text-white">Create New Container</h3>
                 <button
                   onClick={() => setShowCreateForm(false)}
-                  className="text-gray-500 hover:text-gray-700"
+                  className="text-gray-400 hover:text-gray-200 transition-colors"
                 >
                   ✕
                 </button>
@@ -360,22 +360,22 @@ const ContainerSelector = ({ onContainerSelect, selectedContainer }) => {
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Container Name</label>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Container Name</label>
                   <input
                     type="text"
                     value={createForm.name}
                     onChange={(e) => setCreateForm({...createForm, name: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 bg-dark-tertiary border border-dark text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="e.g., my-web-app"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Docker Image</label>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Docker Image</label>
                   <select
                     value={createForm.image}
                     onChange={(e) => setCreateForm({...createForm, image: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 bg-dark-tertiary border border-dark text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     {imageOptions.map((option) => (
                       <option key={option.value} value={option.value}>
@@ -383,29 +383,29 @@ const ContainerSelector = ({ onContainerSelect, selectedContainer }) => {
                       </option>
                     ))}
                   </select>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-gray-400 mt-1">
                     {imageOptions.find(opt => opt.value === createForm.image)?.description}
                   </p>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Port</label>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Port</label>
                   <input
                     type="text"
                     value={createForm.port}
                     onChange={(e) => setCreateForm({...createForm, port: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 bg-dark-tertiary border border-dark text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="3000"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Description (Optional)</label>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Description (Optional)</label>
                   <input
                     type="text"
                     value={createForm.description}
                     onChange={(e) => setCreateForm({...createForm, description: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 bg-dark-tertiary border border-dark text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="Brief description of this container"
                   />
                 </div>
@@ -414,14 +414,14 @@ const ContainerSelector = ({ onContainerSelect, selectedContainer }) => {
               <div className="flex space-x-3 mt-6">
                 <button
                   onClick={() => setShowCreateForm(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                  className="flex-1 px-4 py-2 border border-gray-600 text-gray-300 rounded-md hover:bg-gray-700 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleCreateContainer}
                   disabled={!createForm.name || !createForm.image || !createForm.port || isCreating}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {isCreating ? (
                     <div className="flex items-center justify-center">
@@ -438,19 +438,19 @@ const ContainerSelector = ({ onContainerSelect, selectedContainer }) => {
         )}
 
         {/* Help Section */}
-        <div className="mt-12 bg-blue-50 rounded-lg p-6">
-          <h4 className="font-semibold text-blue-800 mb-3">💡 How Container Selection Works:</h4>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-blue-700">
+        <div className="mt-12 bg-blue-900 bg-opacity-30 border border-blue-700 rounded-lg p-6">
+          <h4 className="font-semibold text-blue-300 mb-3">💡 How Container Selection Works:</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-blue-200">
             <div>
-              <h5 className="font-medium mb-2">📁 Container Folders:</h5>
+              <h5 className="font-medium mb-2 text-blue-300">📁 Container Folders:</h5>
               <ul className="space-y-1">
                 <li>• Each container has its own dedicated folder</li>
-                <li>• Files uploaded will go to: <code>/tmp/pterolite-containers/[container-name]/</code></li>
+                <li>• Files uploaded will go to: <code className="bg-blue-800 bg-opacity-50 px-1 rounded text-blue-300">/tmp/pterolite-containers/[container-name]/</code></li>
                 <li>• Scripts run within the container's isolated environment</li>
               </ul>
             </div>
             <div>
-              <h5 className="font-medium mb-2">🚀 Getting Started:</h5>
+              <h5 className="font-medium mb-2 text-blue-300">🚀 Getting Started:</h5>
               <ul className="space-y-1">
                 <li>• Select an existing container or create a new one</li>
                 <li>• Each container can run different runtimes (Node.js, Python, etc.)</li>

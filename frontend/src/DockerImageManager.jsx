@@ -271,9 +271,9 @@ const DockerImageManager = ({ selectedContainer, containerFolder }) => {
     return (
       <div className="p-6 max-w-4xl mx-auto">
         <div className="text-center py-12">
-          <div className="text-6xl text-gray-300 mb-4">🐳</div>
-          <h3 className="text-xl font-semibold text-gray-700 mb-2">No Container Selected</h3>
-          <p className="text-gray-500">Please select a container to manage Docker images</p>
+          <div className="text-6xl text-gray-400 mb-4">🐳</div>
+          <h3 className="text-xl font-semibold text-white mb-2">No Container Selected</h3>
+          <p className="text-gray-400">Please select a container to manage Docker images</p>
         </div>
       </div>
     );
@@ -282,28 +282,28 @@ const DockerImageManager = ({ selectedContainer, containerFolder }) => {
   return (
     <div className="p-6 max-w-6xl mx-auto">
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-800 mb-2">🐳 Docker Image Manager</h2>
-        <p className="text-gray-600">Change Docker image for container: <strong>{selectedContainer.Names[0].replace('/', '')}</strong></p>
+        <h2 className="text-2xl font-bold text-white mb-2">🐳 Docker Image Manager</h2>
+        <p className="text-gray-300">Change Docker image for container: <strong className="text-blue-400">{selectedContainer.Names[0].replace('/', '')}</strong></p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Image Selection Section */}
         <div className="space-y-4">
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h3 className="text-lg font-semibold mb-4">Current Image</h3>
-            <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+          <div className="bg-dark-secondary rounded-lg shadow-dark p-6">
+            <h3 className="text-lg font-semibold mb-4 text-white">Current Image</h3>
+            <div className="p-4 bg-blue-900 bg-opacity-30 rounded-lg border border-blue-700">
               <div className="flex items-center">
                 <span className="text-2xl mr-3">🏷️</span>
                 <div>
-                  <p className="font-medium text-blue-900">{currentImage}</p>
-                  <p className="text-sm text-blue-700">Container: {selectedContainer.Names[0].replace('/', '')}</p>
+                  <p className="font-medium text-blue-300">{currentImage}</p>
+                  <p className="text-sm text-blue-400">Container: {selectedContainer.Names[0].replace('/', '')}</p>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h3 className="text-lg font-semibold mb-4">Select New Image</h3>
+          <div className="bg-dark-secondary rounded-lg shadow-dark p-6">
+            <h3 className="text-lg font-semibold mb-4 text-white">Select New Image</h3>
             
             <div className="space-y-4">
               <div className="flex items-center space-x-4">
@@ -314,7 +314,7 @@ const DockerImageManager = ({ selectedContainer, containerFolder }) => {
                     onChange={() => setUseCustomImage(false)}
                     className="mr-2"
                   />
-                  <span>Choose from predefined images</span>
+                  <span className="text-gray-300">Choose from predefined images</span>
                 </label>
                 <label className="flex items-center">
                   <input
@@ -323,17 +323,17 @@ const DockerImageManager = ({ selectedContainer, containerFolder }) => {
                     onChange={() => setUseCustomImage(true)}
                     className="mr-2"
                   />
-                  <span>Enter custom image</span>
+                  <span className="text-gray-300">Enter custom image</span>
                 </label>
               </div>
 
               {!useCustomImage ? (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Predefined Images</label>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">Predefined Images</label>
                   <select
                     value={selectedImage}
                     onChange={(e) => setSelectedImage(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 bg-dark-tertiary border border-dark text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">Select an image...</option>
                     {predefinedImages.map((image) => (
@@ -343,22 +343,22 @@ const DockerImageManager = ({ selectedContainer, containerFolder }) => {
                     ))}
                   </select>
                   {selectedImage && (
-                    <p className="text-sm text-gray-600 mt-2">
-                      Selected: <code className="bg-gray-100 px-2 py-1 rounded">{selectedImage}</code>
+                    <p className="text-sm text-gray-400 mt-2">
+                      Selected: <code className="bg-dark-tertiary px-2 py-1 rounded text-blue-400">{selectedImage}</code>
                     </p>
                   )}
                 </div>
               ) : (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Custom Docker Image</label>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">Custom Docker Image</label>
                   <input
                     type="text"
                     value={customImage}
                     onChange={(e) => setCustomImage(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 bg-dark-tertiary border border-dark text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="e.g., nginx:alpine, python:3.11-slim, node:18-alpine"
                   />
-                  <p className="text-sm text-gray-500 mt-1">
+                  <p className="text-sm text-gray-400 mt-1">
                     Enter any valid Docker image name from Docker Hub or other registries
                   </p>
                 </div>
@@ -390,18 +390,18 @@ const DockerImageManager = ({ selectedContainer, containerFolder }) => {
           </div>
 
           {/* Available Images */}
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h3 className="text-lg font-semibold mb-4">Available Images on System</h3>
+          <div className="bg-dark-secondary rounded-lg shadow-dark p-6">
+            <h3 className="text-lg font-semibold mb-4 text-white">Available Images on System</h3>
             <div className="max-h-64 overflow-y-auto">
               {availableImages.length === 0 ? (
-                <p className="text-gray-500 text-sm">No images found. Click refresh to load available images.</p>
+                <p className="text-gray-400 text-sm">No images found. Click refresh to load available images.</p>
               ) : (
                 <div className="space-y-2">
                   {availableImages.map((image, index) => (
-                    <div key={index} className="flex items-center justify-between p-3 border border-gray-200 rounded-md">
+                    <div key={index} className="flex items-center justify-between p-3 bg-dark-tertiary border border-dark rounded-md hover:bg-gray-600 transition-colors">
                       <div className="flex-1">
-                        <p className="font-medium text-sm">{image.name}</p>
-                        <p className="text-xs text-gray-500">Size: {image.size} | Created: {image.created}</p>
+                        <p className="font-medium text-sm text-white">{image.name}</p>
+                        <p className="text-xs text-gray-400">Size: {image.size} | Created: {image.created}</p>
                       </div>
                       <div className="flex space-x-2">
                         <button
@@ -430,9 +430,9 @@ const DockerImageManager = ({ selectedContainer, containerFolder }) => {
         </div>
 
         {/* Output Section */}
-        <div className="bg-white rounded-lg shadow-md p-6">
+        <div className="bg-dark-secondary rounded-lg shadow-dark p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold">Process Output</h3>
+            <h3 className="text-lg font-semibold text-white">Process Output</h3>
             <button
               onClick={clearOutput}
               className="px-3 py-1 text-sm bg-gray-600 text-white rounded hover:bg-gray-700"
@@ -473,12 +473,12 @@ const DockerImageManager = ({ selectedContainer, containerFolder }) => {
       </div>
 
       {/* Warning Section */}
-      <div className="mt-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+      <div className="mt-6 bg-yellow-900 bg-opacity-30 border border-yellow-700 rounded-lg p-4">
         <div className="flex items-start">
-          <span className="text-yellow-600 text-xl mr-3">⚠️</span>
+          <span className="text-yellow-400 text-xl mr-3">⚠️</span>
           <div>
-            <h4 className="font-medium text-yellow-800 mb-2">Important Notes:</h4>
-            <ul className="text-sm text-yellow-700 space-y-1">
+            <h4 className="font-medium text-yellow-300 mb-2">Important Notes:</h4>
+            <ul className="text-sm text-yellow-200 space-y-1">
               <li>• This process will stop the current container and create a new one with the selected image</li>
               <li>• All running processes inside the container will be terminated</li>
               <li>• Container data in volumes will be preserved, but data in the container filesystem may be lost</li>
