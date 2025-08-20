@@ -103,7 +103,7 @@ createAdminUser(username, email, password)
       process.exit(1);
     }
   })
-  .catch(error => {
-    console.error('❌ Unexpected error:', error.message);
-    process.exit(1);
-  });
+.catch(error => {
+  console.error('❌ Unexpected error:', error.message);
+  process.exit(1);
+});

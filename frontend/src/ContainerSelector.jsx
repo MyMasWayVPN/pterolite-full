@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getContainers, startContainer, stopContainer, deleteContainer } from './api';
+import { getContainers, startContainer, stopContainer, deleteContainer, createContainer } from './api';
 
 const ContainerSelector = ({ onContainerSelect, selectedContainer, currentUser }) => {
   const [containers, setContainers] = useState([]);
@@ -55,48 +55,35 @@ const ContainerSelector = ({ onContainerSelect, selectedContainer, currentUser }
         return;
       }
 
-      // Create container using authenticated API
-      const response = await fetch('/containers', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-        },
-        body: JSON.stringify({
-          name: createForm.name,
-          image: createForm.image,
-          port: createForm.port,
-          description: createForm.description
-        })
+      // Create container using API function
+      const result = await createContainer({
+        name: createForm.name,
+        image: createForm.image,
+        port: createForm.port,
+        description: createForm.description
       });
 
-      if (response.ok) {
-        const result = await response.json();
-        console.log('Container creation result:', result);
-        
-        loadContainers();
-        setShowCreateForm(false);
-        setCreateForm({
-          name: '',
-          image: 'docker.io/bionicc/nodejs-wabot:latest',
-          port: '3000',
-          description: ''
-        });
+      console.log('Container creation result:', result);
+      
+      loadContainers();
+      setShowCreateForm(false);
+      setCreateForm({
+        name: '',
+        image: 'docker.io/bionicc/nodejs-wabot:latest',
+        port: '3000',
+        description: ''
+      });
 
-        // Show success message with install commands if needed
-        let message = `Container "${createForm.name}" created successfully!`;
-        
-        if (result.installCommands && result.installCommands.length > 0) {
-          message += `\n\n📝 ${result.note}\n\n🔧 To install the requested image, run these commands in the Console:\n\n`;
-          message += result.installCommands.map(cmd => `• ${cmd}`).join('\n');
-          message += `\n\n💡 After running these commands, your container will have the requested image available.`;
-        }
-        
-        alert(message);
-      } else {
-        const error = await response.json();
-        alert(`Failed to create container: ${error.error || 'Unknown error'}`);
+      // Show success message with install commands if needed
+      let message = `Server "${createForm.name}" created successfully!`;
+      
+      if (result.installCommands && result.installCommands.length > 0) {
+        message += `\n\n📝 ${result.note}\n\n🔧 To install the requested image, run these commands in the Console:\n\n`;
+        message += result.installCommands.map(cmd => `• ${cmd}`).join('\n');
+        message += `\n\n💡 After running these commands, your server will have the requested image available.`;
       }
+      
+      alert(message);
     } catch (error) {
       console.error('Failed to create container:', error);
       alert(`Failed to create container: ${error.message}`);

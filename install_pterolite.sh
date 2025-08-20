@@ -360,52 +360,13 @@ EOF
 
 # Create initial admin user
 create_initial_admin_user() {
-    # Create a Node.js script to create the admin user
-    cat > create_admin.js <<EOF
-const bcrypt = require('bcrypt');
-const fs = require('fs');
-const { v4: uuidv4 } = require('uuid');
-
-async function createAdminUser() {
-    try {
-        const hashedPassword = await bcrypt.hash('$ADMIN_PASSWORD', 10);
-        
-        const adminUser = {
-            id: uuidv4(),
-            username: '$ADMIN_USERNAME',
-            email: '$ADMIN_EMAIL',
-            password: hashedPassword,
-            role: 'admin',
-            createdAt: new Date(),
-            containers: []
-        };
-        
-        // Save to users file
-        const usersFile = '/tmp/pterolite-users.json';
-        const users = [adminUser];
-        
-        fs.writeFileSync(usersFile, JSON.stringify(users, null, 2));
-        console.log('Admin user created successfully');
-        console.log('Username:', adminUser.username);
-        console.log('Email:', adminUser.email);
-        console.log('Role:', adminUser.role);
-        
-    } catch (error) {
-        console.error('Error creating admin user:', error);
-        process.exit(1);
-    }
-}
-
-createAdminUser();
-EOF
+    log_info "Creating initial admin user..."
     
-    # Run the script to create admin user
-    if node create_admin.js; then
-        log_info "Admin user created successfully"
-        rm create_admin.js
+    # Use the existing create_admin.js script
+    if node create_admin.js "$ADMIN_USERNAME" "$ADMIN_EMAIL" "$ADMIN_PASSWORD"; then
+        log_info "✅ Admin user created successfully"
     else
-        log_error "Failed to create admin user"
-        rm create_admin.js
+        log_error "❌ Failed to create admin user"
         exit 1
     fi
 }
