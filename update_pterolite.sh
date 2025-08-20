@@ -1,13 +1,13 @@
 #!/bin/bash
 # PteroLite Update Script - GitHub Version
-set -e
+set -e  # Exit on any error
 
 # Configuration
 GITHUB_REPO="https://github.com/MyMasWayVPN/pterolite-full"
 INSTALL_DIR="/opt/pterolite"
 WEB_ROOT="/var/www/pterolite"
 TEMP_DIR="/tmp/pterolite-update"
-BACKUP_DIR="/opt/pterolite-update-backup-$(date +%Y%m%d_%H%M%S)"
+BACKUP_DIR="/opt/pterolite-backup-$(date +%Y%m%d-%H%M%S)"
 
 # Colors for output
 RED='\033[0;31m'
@@ -41,72 +41,95 @@ check_root() {
     fi
 }
 
-# Check if PteroLite is already installed
-check_existing_installation() {
-    if [[ ! -d "$INSTALL_DIR" ]]; then
-        log_error "PteroLite installation not found at $INSTALL_DIR"
-        log_error "Please run the main install script first: sudo bash install_pterolite.sh"
-        exit 1
+# Check if PteroLite is installed
+check_installation() {
+    log_step "Checking existing installation..."
+    
+    # Check for systemd service (new installation method)
+    if systemctl list-unit-files | grep -q "pterolite.service"; then
+        log_info "Found systemd service installation"
+        INSTALL_TYPE="systemd"
+        return 0
     fi
     
-    if ! pm2 list | grep -q "pterolite"; then
-        log_error "PteroLite PM2 process not found"
-        log_error "Please check your installation or run reinstall script"
-        exit 1
-    fi
-    
-    log_info "Existing PteroLite installation found"
-}
-
-# Get domain from existing installation
-get_existing_domain() {
-    if [[ -f "/etc/nginx/sites-available/pterolite.conf" ]]; then
-        DOMAIN=$(grep -oP 'server_name \K[^;]+' /etc/nginx/sites-available/pterolite.conf | head -1)
-        if [[ -n "$DOMAIN" ]]; then
-            log_info "Found existing domain: $DOMAIN"
-        else
-            log_warn "Could not detect domain from existing config"
-            DOMAIN="pterolite.mydomain.com"
+    # Check for PM2 installation (legacy method)
+    if command -v pm2 >/dev/null 2>&1; then
+        if pm2 list | grep -q "pterolite"; then
+            log_info "Found PM2 installation"
+            INSTALL_TYPE="pm2"
+            return 0
         fi
-    else
-        log_warn "No existing nginx configuration found"
-        DOMAIN="pterolite.mydomain.com"
     fi
+    
+    # Check if installation directory exists
+    if [[ -d "$INSTALL_DIR" ]]; then
+        log_warn "Installation directory exists but no running service found"
+        log_warn "This might be a partial or broken installation"
+        INSTALL_TYPE="partial"
+        return 0
+    fi
+    
+    log_error "PteroLite installation not found"
+    log_error "Please run the install script first"
+    exit 1
 }
 
-# Backup existing files
-backup_files() {
-    log_step "Creating backup of existing files..."
+# Backup current installation
+backup_installation() {
+    log_step "Creating backup of current installation..."
     
+    # Create backup directory
     mkdir -p "$BACKUP_DIR"
     
-    # Backup backend
-    if [[ -f "$INSTALL_DIR/server.js" ]]; then
-        cp "$INSTALL_DIR/server.js" "$BACKUP_DIR/"
+    # Backup installation directory
+    if [[ -d "$INSTALL_DIR" ]]; then
+        log_info "Backing up installation directory..."
+        cp -r "$INSTALL_DIR" "$BACKUP_DIR/install"
     fi
     
-    if [[ -f "$INSTALL_DIR/package.json" ]]; then
-        cp "$INSTALL_DIR/package.json" "$BACKUP_DIR/"
-    fi
-    
-    if [[ -f "$INSTALL_DIR/.env" ]]; then
-        cp "$INSTALL_DIR/.env" "$BACKUP_DIR/"
-    fi
-    
-    # Backup frontend
+    # Backup web root
     if [[ -d "$WEB_ROOT" ]]; then
-        cp -r "$WEB_ROOT" "$BACKUP_DIR/web_root_backup"
+        log_info "Backing up web root..."
+        cp -r "$WEB_ROOT" "$BACKUP_DIR/web"
     fi
     
-    # Backup nginx config
+    # Backup nginx configuration
     if [[ -f "/etc/nginx/sites-available/pterolite.conf" ]]; then
-        cp "/etc/nginx/sites-available/pterolite.conf" "$BACKUP_DIR/nginx-pterolite.conf.backup"
+        log_info "Backing up nginx configuration..."
+        mkdir -p "$BACKUP_DIR/nginx"
+        cp "/etc/nginx/sites-available/pterolite.conf" "$BACKUP_DIR/nginx/"
+    fi
+    
+    # Backup systemd service
+    if [[ -f "/etc/systemd/system/pterolite.service" ]]; then
+        log_info "Backing up systemd service..."
+        mkdir -p "$BACKUP_DIR/systemd"
+        cp "/etc/systemd/system/pterolite.service" "$BACKUP_DIR/systemd/"
     fi
     
     log_info "Backup created at: $BACKUP_DIR"
 }
 
-# Download latest version from GitHub
+# Stop services
+stop_services() {
+    log_step "Stopping services..."
+    
+    case $INSTALL_TYPE in
+        "systemd")
+            log_info "Stopping systemd service..."
+            systemctl stop pterolite || true
+            ;;
+        "pm2")
+            log_info "Stopping PM2 process..."
+            pm2 stop pterolite || true
+            ;;
+        "partial")
+            log_warn "No running service to stop"
+            ;;
+    esac
+}
+
+# Download latest version
 download_latest() {
     log_step "Downloading latest version from GitHub..."
     
@@ -139,11 +162,120 @@ download_latest() {
     log_info "Latest version downloaded successfully"
 }
 
-# Create systemd service
-create_systemd_service() {
-    log_step "Creating/updating systemd service..."
+# Preserve configuration
+preserve_config() {
+    log_step "Preserving existing configuration..."
     
-    # Create systemd service file
+    # Preserve API key from .env file
+    if [[ -f "$INSTALL_DIR/.env" ]]; then
+        log_info "Preserving API key from .env file..."
+        API_KEY=$(grep "API_KEY=" "$INSTALL_DIR/.env" | cut -d'=' -f2)
+        if [[ -n "$API_KEY" ]]; then
+            log_info "API key preserved: ${API_KEY:0:8}..."
+        else
+            log_warn "No API key found in .env file"
+            # Generate new API key
+            API_KEY=$(openssl rand -hex 32)
+            log_info "Generated new API key: ${API_KEY:0:8}..."
+        fi
+    else
+        log_warn ".env file not found, generating new API key"
+        API_KEY=$(openssl rand -hex 32)
+        log_info "Generated new API key: ${API_KEY:0:8}..."
+    fi
+    
+    # Preserve domain from nginx config
+    if [[ -f "/etc/nginx/sites-available/pterolite.conf" ]]; then
+        DOMAIN=$(grep "server_name" "/etc/nginx/sites-available/pterolite.conf" | awk '{print $2}' | sed 's/;//')
+        if [[ -n "$DOMAIN" ]]; then
+            log_info "Preserved domain: $DOMAIN"
+        else
+            log_warn "Could not extract domain from nginx config"
+            DOMAIN="localhost"
+        fi
+    else
+        log_warn "Nginx config not found, using localhost"
+        DOMAIN="localhost"
+    fi
+}
+
+# Update backend
+update_backend() {
+    log_step "Updating backend..."
+    
+    # Copy new backend files
+    log_info "Copying new backend files..."
+    cp -r "$TEMP_DIR/pterolite-full/backend"/* "$INSTALL_DIR/"
+    
+    # Install/update dependencies
+    log_info "Installing/updating backend dependencies..."
+    cd "$INSTALL_DIR"
+    npm install
+    
+    # Install additional dependencies for new features
+    log_info "Installing additional backend dependencies..."
+    npm install multer archiver unzipper uuid
+    
+    # Restore configuration
+    log_info "Restoring configuration..."
+    cat > .env <<EOF
+API_KEY=$API_KEY
+NODE_ENV=production
+PORT=8088
+EOF
+    
+    # Update server.js to use environment variables properly
+    if grep -q 'const API_KEY = process.env.API_KEY || "supersecretkey";' server.js; then
+        sed -i 's/const API_KEY = process.env.API_KEY || "supersecretkey";/const API_KEY = process.env.API_KEY;/' server.js
+    fi
+    
+    log_info "Backend updated successfully"
+}
+
+# Update frontend
+update_frontend() {
+    log_step "Updating frontend..."
+    
+    cd "$TEMP_DIR/pterolite-full/frontend"
+    
+    # Install frontend dependencies
+    log_info "Installing frontend dependencies..."
+    npm install
+    
+    # Build the frontend
+    log_info "Building React application with Vite..."
+    npm run build
+    
+    # Verify build output
+    if [[ ! -d "dist" ]]; then
+        log_error "Frontend build failed - dist directory not created"
+        exit 1
+    fi
+    
+    if [[ ! -f "dist/index.html" ]]; then
+        log_error "Frontend build failed - index.html not found in dist"
+        exit 1
+    fi
+    
+    log_info "Frontend build completed successfully"
+    
+    # Deploy frontend files
+    log_info "Deploying frontend files..."
+    rm -rf "$WEB_ROOT"/*
+    cp -r dist/* "$WEB_ROOT/"
+    
+    # Set proper permissions
+    chown -R www-data:www-data "$WEB_ROOT"
+    chmod -R 755 "$WEB_ROOT"
+    
+    log_info "Frontend updated successfully"
+}
+
+# Update systemd service
+update_systemd_service() {
+    log_step "Updating systemd service..."
+    
+    # Create/update systemd service file
     cat > /etc/systemd/system/pterolite.service <<EOF
 [Unit]
 Description=PteroLite Container Management Panel
@@ -167,125 +299,38 @@ SyslogIdentifier=pterolite
 WantedBy=multi-user.target
 EOF
     
-    # Reload systemd and enable service
+    # Reload systemd
     systemctl daemon-reload
     systemctl enable pterolite
     
-    log_info "Systemd service created/updated and enabled"
+    log_info "Systemd service updated"
 }
 
-# Update backend
-update_backend() {
-    log_step "Updating backend with new features..."
+# Migrate from PM2 to systemd
+migrate_pm2_to_systemd() {
+    log_step "Migrating from PM2 to systemd..."
     
-    cd "$INSTALL_DIR"
+    # Stop and remove PM2 process
+    log_info "Stopping PM2 process..."
+    pm2 stop pterolite || true
+    pm2 delete pterolite || true
+    pm2 save || true
     
-    # Stop systemd service
-    log_info "Stopping PteroLite service..."
-    systemctl stop pterolite || true
+    # Remove PM2 startup script
+    log_info "Removing PM2 startup configuration..."
+    pm2 unstartup || true
     
-    # Copy new backend files (preserve .env)
-    log_info "Copying new backend files..."
+    # Create systemd service
+    update_systemd_service
     
-    # Backup .env temporarily
-    if [[ -f ".env" ]]; then
-        cp ".env" "/tmp/pterolite_env_backup"
-    fi
-    
-    # Copy all new backend files
-    cp -r "$TEMP_DIR/pterolite-full/backend"/* "$INSTALL_DIR/"
-    
-    # Restore .env
-    if [[ -f "/tmp/pterolite_env_backup" ]]; then
-        cp "/tmp/pterolite_env_backup" ".env"
-        rm "/tmp/pterolite_env_backup"
-        log_info "Preserved existing environment configuration"
-    fi
-    
-    # Install new dependencies
-    log_info "Installing/updating dependencies..."
-    npm install
-    
-    # Install additional dependencies that might be missing
-    npm install multer archiver unzipper uuid
-    
-    # Update server.js to use environment variables properly
-    if grep -q 'const API_KEY = process.env.API_KEY || "supersecretkey";' server.js; then
-        sed -i 's/const API_KEY = process.env.API_KEY || "supersecretkey";/const API_KEY = process.env.API_KEY;/' server.js
-    fi
-    
-    # Create/update systemd service
-    create_systemd_service
-    
-    # Start systemd service
-    log_info "Starting PteroLite service..."
-    systemctl start pterolite
-    
-    # Verify service is running
-    if systemctl is-active --quiet pterolite; then
-        log_info "Backend service started successfully"
-    else
-        log_error "Failed to start backend service"
-        log_info "Checking service status..."
-        systemctl status pterolite --no-pager -l
-        return 1
-    fi
-    
-    log_info "Backend updated successfully"
-}
-
-# Update frontend
-update_frontend() {
-    log_step "Updating frontend with new features..."
-    
-    # Build new frontend
-    cd "$TEMP_DIR/pterolite-full/frontend"
-    
-    # Install dependencies
-    log_info "Installing frontend dependencies..."
-    npm install
-    
-    # Build frontend
-    log_info "Building new frontend..."
-    npm run build
-    
-    # Verify build output
-    if [[ ! -d "dist" ]]; then
-        log_error "Frontend build failed - dist directory not created"
-        exit 1
-    fi
-    
-    if [[ ! -f "dist/index.html" ]]; then
-        log_error "Frontend build failed - index.html not found in dist"
-        exit 1
-    fi
-    
-    # Copy built files to web root
-    log_info "Deploying new frontend..."
-    rm -rf "$WEB_ROOT"/*
-    cp -r dist/* "$WEB_ROOT/"
-    
-    # Set proper permissions
-    chown -R www-data:www-data "$WEB_ROOT"
-    chmod -R 755 "$WEB_ROOT"
-    
-    log_info "Frontend updated successfully"
+    log_info "Migration from PM2 to systemd completed"
 }
 
 # Update nginx configuration
-update_nginx() {
+update_nginx_config() {
     log_step "Updating nginx configuration..."
     
-    # Get API key from .env file
-    if [[ -f "$INSTALL_DIR/.env" ]]; then
-        API_KEY=$(grep "API_KEY=" "$INSTALL_DIR/.env" | cut -d'=' -f2)
-    else
-        API_KEY="supersecretkey"
-        log_warn "Could not find API key, using default"
-    fi
-    
-    # Create new nginx config
-    log_info "Creating updated nginx configuration..."
+    # Create updated nginx configuration
     cat > /etc/nginx/sites-available/pterolite.conf <<EOF
 server {
     listen 80;
@@ -334,63 +379,49 @@ server {
 EOF
     
     # Test nginx configuration
+    log_info "Testing nginx configuration..."
     if nginx -t; then
         log_info "Nginx configuration is valid"
         systemctl reload nginx
     else
         log_error "Nginx configuration test failed"
-        log_info "Restoring backup configuration..."
-        if [[ -f "$BACKUP_DIR/nginx-pterolite.conf.backup" ]]; then
-            cp "$BACKUP_DIR/nginx-pterolite.conf.backup" "/etc/nginx/sites-available/pterolite.conf"
-            nginx -t && systemctl reload nginx
-        fi
         exit 1
     fi
     
-    # Re-run certbot if SSL was previously configured
-    if [[ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]]; then
-        log_info "Re-configuring SSL certificate..."
-        certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --email "admin@$DOMAIN" || log_warn "SSL reconfiguration failed"
-    fi
-    
-    log_info "Nginx configuration updated successfully"
+    log_info "Nginx configuration updated"
 }
 
-# Install additional system dependencies if needed
-install_additional_dependencies() {
-    log_step "Checking and installing additional dependencies..."
+# Start services
+start_services() {
+    log_step "Starting services..."
     
-    # Install Python if not present
-    if ! command -v python3 >/dev/null 2>&1; then
-        log_info "Installing Python3..."
-        apt-get update
-        apt-get install -y python3 python3-pip
+    # Start backend service
+    log_info "Starting backend service..."
+    systemctl start pterolite
+    
+    # Verify service is running
+    sleep 3
+    if systemctl is-active --quiet pterolite; then
+        log_info "Backend service started successfully"
     else
-        log_info "Python3 already installed"
+        log_error "Failed to start backend service"
+        log_info "Checking service status..."
+        systemctl status pterolite --no-pager -l
+        exit 1
     fi
     
-    # Create working directories if they don't exist
-    log_info "Creating working directories..."
-    mkdir -p /tmp/pterolite-containers
-    mkdir -p /tmp/pterolite-files
-    mkdir -p /tmp/pterolite-uploads
-    
-    # Set permissions
-    chmod 755 /tmp/pterolite-containers
-    chmod 755 /tmp/pterolite-files
-    chmod 755 /tmp/pterolite-uploads
-    
-    log_info "Additional dependencies checked and installed"
+    # Ensure nginx is running
+    if ! systemctl is-active --quiet nginx; then
+        log_info "Starting nginx..."
+        systemctl start nginx
+    fi
 }
 
 # Verify update
 verify_update() {
     log_step "Verifying update..."
     
-    # Wait a moment for services to start
-    sleep 3
-    
-    # Check systemd service status
+    # Check systemd service
     if systemctl is-active --quiet pterolite; then
         log_info "✅ Backend service is running"
         BACKEND_STATUS="✅ Running"
@@ -399,40 +430,31 @@ verify_update() {
         BACKEND_STATUS="❌ Failed"
     fi
     
-    # Check nginx status
+    # Check Nginx service
     if systemctl is-active --quiet nginx; then
-        log_info "✅ Nginx is running"
+        log_info "✅ Nginx web server is running"
         NGINX_STATUS="✅ Running"
     else
-        log_error "❌ Nginx is not running"
+        log_error "❌ Nginx failed to start"
         NGINX_STATUS="❌ Failed"
     fi
     
-    # Check if frontend files exist
-    if [[ -f "$WEB_ROOT/index.html" ]]; then
-        log_info "✅ Frontend files deployed"
-        FRONTEND_STATUS="✅ Deployed"
+    # Check if backend port is listening
+    if netstat -tuln 2>/dev/null | grep -q ":8088 " || ss -tuln 2>/dev/null | grep -q ":8088 "; then
+        log_info "✅ Backend is listening on port 8088"
+        PORT_STATUS="✅ Listening"
     else
-        log_error "❌ Frontend files missing"
-        FRONTEND_STATUS="❌ Missing"
+        log_warn "⚠️ Backend port 8088 not detected"
+        PORT_STATUS="⚠️ Not Detected"
     fi
     
-    # Test web access
-    if curl -s -o /dev/null -w "%{http_code}" http://localhost 2>/dev/null | grep -q "200\|301\|302"; then
-        log_info "✅ Web access working"
-        HTTP_ACCESS="✅ Working"
-    else
-        log_warn "⚠️ Web access test failed"
-        HTTP_ACCESS="⚠️ Failed"
-    fi
-    
-    # Test backend API
-    if curl -s -o /dev/null -w "%{http_code}" http://localhost:8088 2>/dev/null | grep -q "401\|200"; then
-        log_info "✅ Backend API responding"
+    # Test API endpoint
+    if curl -s -H "X-API-Key: $API_KEY" "http://localhost:8088/containers" >/dev/null 2>&1; then
+        log_info "✅ API endpoint is responding"
         API_STATUS="✅ Responding"
     else
-        log_warn "⚠️ Backend API test failed"
-        API_STATUS="⚠️ Failed"
+        log_warn "⚠️ API endpoint not responding"
+        API_STATUS="⚠️ Not Responding"
     fi
     
     log_info "Update verification completed"
@@ -440,87 +462,62 @@ verify_update() {
 
 # Show update summary
 show_summary() {
-    log_step "Update Summary"
-    
-    # Get API key
-    if [[ -f "$INSTALL_DIR/.env" ]]; then
-        API_KEY=$(grep "API_KEY=" "$INSTALL_DIR/.env" | cut -d'=' -f2)
-    else
-        API_KEY="Not found"
-    fi
-    
     echo ""
-    echo "🎉 PteroLite has been successfully updated!"
+    log_info "🎉 PteroLite update completed!"
+    echo "================================"
+    
+    # Service Status Summary
     echo ""
-    echo "📊 SERVICE STATUS:"
+    log_info "📊 SERVICE STATUS SUMMARY:"
     echo "================================"
     printf "%-20s %s\n" "Backend Service:" "$BACKEND_STATUS"
     printf "%-20s %s\n" "Nginx Server:" "$NGINX_STATUS"
-    printf "%-20s %s\n" "Frontend Files:" "$FRONTEND_STATUS"
-    printf "%-20s %s\n" "HTTP Access:" "$HTTP_ACCESS"
-    printf "%-20s %s\n" "API Status:" "$API_STATUS"
+    printf "%-20s %s\n" "Backend Port:" "$PORT_STATUS"
+    printf "%-20s %s\n" "API Endpoint:" "$API_STATUS"
     
+    # Update Details
     echo ""
-    echo "🔧 System Information:"
+    log_info "📋 UPDATE DETAILS:"
     echo "================================"
-    echo "   • Domain: $DOMAIN"
-    echo "   • Install Directory: $INSTALL_DIR"
-    echo "   • Web Root: $WEB_ROOT"
-    echo "   • API Key: $API_KEY"
-    echo "   • Backup Location: $BACKUP_DIR"
-    echo "   • GitHub Repository: $GITHUB_REPO"
+    log_info "Domain: $DOMAIN"
+    log_info "API Key: ${API_KEY:0:8}... (preserved)"
+    log_info "Install Type: $INSTALL_TYPE → systemd"
+    log_info "Backup Location: $BACKUP_DIR"
+    log_info "GitHub Repository: $GITHUB_REPO"
     
+    # Access Information
     echo ""
-    echo "🚀 Available Features:"
+    log_info "🌐 ACCESS INFORMATION:"
     echo "================================"
-    echo "   • 🐳 Container Management - Create, start, stop, delete Docker containers"
-    echo "   • 📁 File Manager - Upload, edit, delete files & extract ZIP"
-    echo "   • 💻 Console Terminal - Execute server commands"
-    echo "   • ⚡ Script Executor - Run JavaScript (Node.js) & Python scripts"
-    echo "   • 🔧 Startup Manager - Manage startup commands"
-    echo "   • 🐋 Docker Image Manager - Manage Docker images"
+    if [[ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]]; then
+        log_info "Web Panel: https://$DOMAIN"
+        log_info "API Eksternal: https://$DOMAIN/external-api"
+    else
+        log_info "Web Panel: http://$DOMAIN"
+        log_info "API Eksternal: http://$DOMAIN/external-api"
+    fi
     
+    # New Features
     echo ""
-    echo "📝 Management Commands:"
+    log_info "🚀 UPDATED FEATURES:"
     echo "================================"
-    echo "   • View logs: journalctl -u pterolite -f"
-    echo "   • Restart backend: systemctl restart pterolite"
-    echo "   • Check backend status: systemctl status pterolite"
-    echo "   • Check nginx status: systemctl status nginx"
+    log_info "• 🎨 Dark Theme - Modern dark interface for better user experience"
+    log_info "• 🐳 Enhanced Container Management"
+    log_info "• 📁 Improved File Manager with better UI"
+    log_info "• 💻 Enhanced Console Terminal"
+    log_info "• ⚡ Updated Script Executor"
+    log_info "• 🔧 Improved Startup Manager"
+    log_info "• 🐋 Enhanced Docker Image Manager"
     
+    # Management Commands
     echo ""
-    echo "💾 Backup Information:"
+    log_info "🔧 MANAGEMENT COMMANDS:"
     echo "================================"
-    echo "   • Your previous installation is backed up at: $BACKUP_DIR"
-    echo "   • Configuration and API key have been preserved"
-    
-    # Save update info
-    cat > "$INSTALL_DIR/update-info.txt" <<EOF
-PteroLite Update Information
-===========================
-Update Date: $(date)
-Domain: $DOMAIN
-API Key: $API_KEY
-Install Directory: $INSTALL_DIR
-Web Root: $WEB_ROOT
-Backup Location: $BACKUP_DIR
-GitHub Repository: $GITHUB_REPO
-
-Updated Features:
-- Container Management with Docker
-- File Manager with upload/download
-- Console Terminal
-- Script Executor (JavaScript & Python)
-- Startup Manager
-- Docker Image Manager
-
-Management Commands:
-- journalctl -u pterolite -f (view backend logs)
-- systemctl restart pterolite (restart backend)
-- systemctl status pterolite (check backend status)
-- systemctl status nginx (check nginx)
-- systemctl reload nginx (reload nginx config)
-EOF
+    log_info "• View backend logs: journalctl -u pterolite -f"
+    log_info "• Restart backend: systemctl restart pterolite"
+    log_info "• Stop backend: systemctl stop pterolite"
+    log_info "• Check backend status: systemctl status pterolite"
+    log_info "• Restore backup: cp -r $BACKUP_DIR/install/* $INSTALL_DIR/"
     
     log_info "Update information saved to $INSTALL_DIR/update-info.txt"
 }
@@ -548,49 +545,93 @@ main() {
     echo "• Update all features and dependencies"
     echo ""
     
-    # Checks
+    # Check prerequisites
     check_root
-    check_existing_installation
-    get_existing_domain
+    check_installation
     
-    # Confirm before proceeding
-    read -p "Do you want to proceed with the update? (y/N): " -n 1 -r
+    # Confirm update
+    read -p "Do you want to continue with the update? (y/N): " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         log_info "Update cancelled by user"
         exit 0
     fi
     
-    # Execute update steps
-    backup_files
+    # Backup current installation
+    backup_installation
+    
+    # Stop services
+    stop_services
+    
+    # Download latest version
     download_latest
-    install_additional_dependencies
+    
+    # Preserve configuration
+    preserve_config
+    
+    # Update components
     update_backend
     update_frontend
-    update_nginx
     
-    # Verify and show results
+    # Handle service migration
+    case $INSTALL_TYPE in
+        "pm2")
+            migrate_pm2_to_systemd
+            ;;
+        "systemd"|"partial")
+            update_systemd_service
+            ;;
+    esac
+    
+    # Update nginx configuration
+    update_nginx_config
+    
+    # Start services
+    start_services
+    
+    # Verify update
     verify_update
+    
+    # Show summary
     show_summary
+    
+    # Save update info
+    cat > "$INSTALL_DIR/update-info.txt" <<EOF
+PteroLite Update Information
+===========================
+Update Date: $(date)
+Previous Install Type: $INSTALL_TYPE
+Current Install Type: systemd
+Domain: $DOMAIN
+API Key: $API_KEY
+Backup Location: $BACKUP_DIR
+GitHub Repository: $GITHUB_REPO
+
+Services:
+- Backend: systemd service (pterolite)
+- Web Server: Nginx
+- Docker: Container Management
+
+Commands:
+- View backend logs: journalctl -u pterolite -f
+- Restart backend: systemctl restart pterolite
+- Check backend status: systemctl status pterolite
+- Restore backup: cp -r $BACKUP_DIR/install/* $INSTALL_DIR/
+EOF
+    
+    # Cleanup
     cleanup
     
     # Final status
     echo ""
     if [[ "$BACKEND_STATUS" == "✅ Running" && "$NGINX_STATUS" == "✅ Running" ]]; then
-        log_info "🎉 PteroLite update completed successfully!"
-        log_info "🌐 Visit your domain to access the updated features: $DOMAIN"
+        log_info "🎉 Update completed successfully! All services are running."
+        log_info "🌐 Visit your domain to see the updated PteroLite with dark theme!"
     else
         log_warn "⚠️ Update completed with some issues. Please check the service status above."
-        log_info "💡 Check logs with: journalctl -u pterolite -f"
+        log_info "💾 Your backup is available at: $BACKUP_DIR"
     fi
     echo ""
-    
-    log_info "🎯 Next Steps:"
-    log_info "1. Visit your web panel to try the updated features"
-    log_info "2. Test container management functionality"
-    log_info "3. Try the file manager and console features"
-    log_info "4. Execute scripts using the script executor"
-    log_info "5. Check the Docker image manager"
 }
 
 # Run main function
