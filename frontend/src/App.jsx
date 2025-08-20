@@ -4,6 +4,7 @@ import FileManager from './FileManager.jsx'
 import Console from './Console.jsx'
 import DockerImageManager from './DockerImageManager.jsx'
 import ContainerSelector from './ContainerSelector.jsx'
+import TunnelManager from './TunnelManager.jsx'
 
 export default function App() {
   const [containers, setContainers] = useState([])
@@ -245,6 +246,8 @@ export default function App() {
         return <Console selectedContainer={selectedContainer} containerFolder={getContainerFolder(selectedContainer)} />
       case 'docker-images':
         return <DockerImageManager selectedContainer={selectedContainer} containerFolder={getContainerFolder(selectedContainer)} />
+      case 'tunnels':
+        return <TunnelManager selectedContainer={selectedContainer} containerFolder={getContainerFolder(selectedContainer)} />
       default:
         return null
     }
@@ -313,6 +316,7 @@ export default function App() {
               {[
                 { id: 'files', name: 'File Manager', icon: '📁' },
                 { id: 'console', name: 'Console', icon: '💻' },
+                { id: 'tunnels', name: 'CF Tunnels', icon: '🌐' },
                 { id: 'docker-images', name: 'Docker Images', icon: '🐳' },
                 { id: 'servers', name: 'My Servers', icon: '📋' }
               ].map((tab) => (

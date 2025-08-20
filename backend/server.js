@@ -1311,6 +1311,323 @@ app.post("/console/run", webPanelAuth, (req, res) => {
   }
 });
 
+// ===== CLOUDFLARE TUNNEL MANAGEMENT =====
+
+class TunnelManager {
+  constructor() {
+    this.tunnels = new Map();
+    this.tunnelLogs = new Map();
+  }
+
+  addTunnel(id, process, info) {
+    this.tunnels.set(id, {
+      process: process,
+      info: info,
+      startTime: new Date(),
+      status: 'running'
+    });
+    
+    this.tunnelLogs.set(id, []);
+    
+    // Handle tunnel output
+    if (process.stdout) {
+      process.stdout.on('data', (data) => {
+        this.addTunnelLog(id, 'stdout', data.toString());
+      });
+    }
+    
+    if (process.stderr) {
+      process.stderr.on('data', (data) => {
+        this.addTunnelLog(id, 'stderr', data.toString());
+      });
+    }
+    
+    process.on('close', (code) => {
+      const tunnel = this.tunnels.get(id);
+      if (tunnel) {
+        tunnel.status = 'stopped';
+        tunnel.exitCode = code;
+        this.addTunnelLog(id, 'system', `Tunnel stopped with exit code: ${code}`);
+      }
+    });
+    
+    process.on('error', (error) => {
+      const tunnel = this.tunnels.get(id);
+      if (tunnel) {
+        tunnel.status = 'error';
+        this.addTunnelLog(id, 'error', `Tunnel error: ${error.message}`);
+      }
+    });
+  }
+
+  addTunnelLog(tunnelId, type, message) {
+    const logs = this.tunnelLogs.get(tunnelId) || [];
+    const timestamp = new Date().toISOString();
+    logs.push({
+      timestamp,
+      type,
+      message: message.trim()
+    });
+    
+    // Keep only last 500 log entries per tunnel
+    if (logs.length > 500) {
+      logs.splice(0, logs.length - 500);
+    }
+    
+    this.tunnelLogs.set(tunnelId, logs);
+  }
+
+  getTunnel(id) {
+    return this.tunnels.get(id);
+  }
+
+  getAllTunnels() {
+    const result = {};
+    for (const [id, tunnel] of this.tunnels.entries()) {
+      result[id] = {
+        id,
+        info: tunnel.info,
+        status: tunnel.status,
+        startTime: tunnel.startTime,
+        exitCode: tunnel.exitCode || null
+      };
+    }
+    return result;
+  }
+
+  getTunnelLogs(id, limit = 100) {
+    const logs = this.tunnelLogs.get(id) || [];
+    return logs.slice(-limit);
+  }
+
+  stopTunnel(id) {
+    const tunnel = this.tunnels.get(id);
+    if (tunnel && tunnel.process && tunnel.status === 'running') {
+      try {
+        tunnel.process.kill('SIGTERM');
+        tunnel.status = 'stopping';
+        this.addTunnelLog(id, 'system', 'Tunnel stop requested');
+        
+        // Force kill after 5 seconds if still running
+        setTimeout(() => {
+          const currentTunnel = this.tunnels.get(id);
+          if (currentTunnel && currentTunnel.process && currentTunnel.status === 'stopping') {
+            try {
+              currentTunnel.process.kill('SIGKILL');
+              this.addTunnelLog(id, 'system', 'Tunnel force killed');
+            } catch (forceKillError) {
+              this.addTunnelLog(id, 'error', `Failed to force kill tunnel: ${forceKillError.message}`);
+            }
+          }
+        }, 5000);
+        
+        return true;
+      } catch (error) {
+        this.addTunnelLog(id, 'error', `Failed to stop tunnel: ${error.message}`);
+        return false;
+      }
+    }
+    return false;
+  }
+
+  removeTunnel(id) {
+    const tunnel = this.tunnels.get(id);
+    if (tunnel) {
+      // If tunnel is still running, try to stop it first
+      if (tunnel.status === 'running' && tunnel.process) {
+        try {
+          tunnel.process.kill('SIGKILL');
+          this.addTunnelLog(id, 'system', 'Tunnel force killed during removal');
+        } catch (killError) {
+          this.addTunnelLog(id, 'error', `Failed to kill tunnel during removal: ${killError.message}`);
+        }
+      }
+    }
+    
+    this.tunnels.delete(id);
+    this.tunnelLogs.delete(id);
+    return true;
+  }
+}
+
+const tunnelManager = new TunnelManager();
+
+// Get all active tunnels
+app.get("/tunnels", webPanelAuth, (req, res) => {
+  const tunnels = tunnelManager.getAllTunnels();
+  res.json(tunnels);
+});
+
+// Create new Cloudflare tunnel
+app.post("/tunnels/create", webPanelAuth, (req, res) => {
+  const { port, name, subdomain } = req.body;
+  
+  if (!port) {
+    return res.status(400).json({ error: "Port is required" });
+  }
+  
+  const tunnelId = uuidv4();
+  const tunnelName = name || `tunnel-${port}`;
+  const tunnelSubdomain = subdomain || `pterolite-${port}-${Date.now()}`;
+  
+  try {
+    // Check if cloudflared is installed
+    exec('which cloudflared', (error) => {
+      if (error) {
+        return res.status(400).json({ 
+          error: "Cloudflared not installed. Please install it first using the tunnel installer." 
+        });
+      }
+      
+      // Create tunnel command
+      const tunnelCommand = `cloudflared tunnel --url http://localhost:${port} --name ${tunnelSubdomain}`;
+      
+      const process = spawn('bash', ['-c', tunnelCommand], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        detached: true
+      });
+      
+      const tunnelInfo = {
+        id: tunnelId,
+        name: tunnelName,
+        port: port,
+        subdomain: tunnelSubdomain,
+        command: tunnelCommand,
+        type: 'cloudflare-tunnel'
+      };
+      
+      tunnelManager.addTunnel(tunnelId, process, tunnelInfo);
+      tunnelManager.addTunnelLog(tunnelId, 'system', `Cloudflare tunnel started for port ${port}`);
+      
+      res.json({
+        success: true,
+        tunnelId,
+        message: `Cloudflare tunnel created for port ${port}`,
+        info: tunnelInfo
+      });
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create quick tunnel (temporary, no authentication required)
+app.post("/tunnels/quick", webPanelAuth, (req, res) => {
+  const { port, name } = req.body;
+  
+  if (!port) {
+    return res.status(400).json({ error: "Port is required" });
+  }
+  
+  const tunnelId = uuidv4();
+  const tunnelName = name || `quick-tunnel-${port}`;
+  
+  try {
+    // Check if cloudflared is installed
+    exec('which cloudflared', (error) => {
+      if (error) {
+        return res.status(400).json({ 
+          error: "Cloudflared not installed. Please install it first using the tunnel installer." 
+        });
+      }
+      
+      // Create quick tunnel command (no authentication required)
+      const tunnelCommand = `cloudflared tunnel --url http://localhost:${port}`;
+      
+      const process = spawn('bash', ['-c', tunnelCommand], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        detached: true
+      });
+      
+      const tunnelInfo = {
+        id: tunnelId,
+        name: tunnelName,
+        port: port,
+        command: tunnelCommand,
+        type: 'quick-tunnel'
+      };
+      
+      tunnelManager.addTunnel(tunnelId, process, tunnelInfo);
+      tunnelManager.addTunnelLog(tunnelId, 'system', `Quick tunnel started for port ${port}`);
+      
+      res.json({
+        success: true,
+        tunnelId,
+        message: `Quick tunnel created for port ${port}`,
+        info: tunnelInfo
+      });
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get tunnel logs
+app.get("/tunnels/:id/logs", webPanelAuth, (req, res) => {
+  const { id } = req.params;
+  const limit = parseInt(req.query.limit) || 100;
+  const logs = tunnelManager.getTunnelLogs(id, limit);
+  res.json({ tunnelId: id, logs });
+});
+
+// Stop tunnel
+app.post("/tunnels/:id/stop", webPanelAuth, (req, res) => {
+  const { id } = req.params;
+  const success = tunnelManager.stopTunnel(id);
+  if (success) {
+    res.json({ success: true, message: "Tunnel stopped successfully" });
+  } else {
+    res.status(400).json({ error: "Failed to stop tunnel or tunnel not found" });
+  }
+});
+
+// Remove tunnel from list
+app.delete("/tunnels/:id", webPanelAuth, (req, res) => {
+  const { id } = req.params;
+  tunnelManager.removeTunnel(id);
+  res.json({ success: true, message: "Tunnel removed from list" });
+});
+
+// Install cloudflared
+app.post("/tunnels/install-cloudflared", webPanelAuth, (req, res) => {
+  const installCommand = `
+    # Download and install cloudflared
+    wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+    dpkg -i cloudflared-linux-amd64.deb || apt-get install -f -y
+    rm -f cloudflared-linux-amd64.deb
+    
+    # Verify installation
+    cloudflared --version
+  `;
+  
+  const options = {
+    timeout: 300000, // 5 minutes timeout
+    maxBuffer: 10 * 1024 * 1024 // 10MB buffer
+  };
+  
+  exec(installCommand, options, (error, stdout, stderr) => {
+    res.json({
+      command: 'install-cloudflared',
+      stdout: stdout || '',
+      stderr: stderr || '',
+      error: error ? error.message : null,
+      exitCode: error ? error.code : 0,
+      success: !error
+    });
+  });
+});
+
+// Check if cloudflared is installed
+app.get("/tunnels/check-cloudflared", webPanelAuth, (req, res) => {
+  exec('cloudflared --version', (error, stdout, stderr) => {
+    res.json({
+      installed: !error,
+      version: error ? null : stdout.trim(),
+      error: error ? error.message : null
+    });
+  });
+});
+
 // ===== DOCKER IMAGE MANAGEMENT ENDPOINTS =====
 
 // Get available Docker images on system

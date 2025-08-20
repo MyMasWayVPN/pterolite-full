@@ -123,6 +123,56 @@ install_docker() {
     log_info "Docker installed successfully"
 }
 
+# Install Cloudflared
+install_cloudflared() {
+    log_info "Installing Cloudflared..."
+    
+    # Check if already installed
+    if command -v cloudflared >/dev/null 2>&1; then
+        log_info "Cloudflared already installed: $(cloudflared --version)"
+        return 0
+    fi
+    
+    # Download and install cloudflared
+    local ARCH=$(dpkg --print-architecture)
+    local CLOUDFLARED_URL
+    
+    case $ARCH in
+        amd64)
+            CLOUDFLARED_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb"
+            ;;
+        arm64)
+            CLOUDFLARED_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64.deb"
+            ;;
+        *)
+            log_warn "Unsupported architecture: $ARCH. Installing from binary..."
+            # Fallback to binary installation
+            curl -L --output /usr/local/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$ARCH
+            chmod +x /usr/local/bin/cloudflared
+            log_info "Cloudflared installed from binary"
+            return 0
+            ;;
+    esac
+    
+    # Download and install .deb package
+    local TEMP_DEB="/tmp/cloudflared.deb"
+    
+    if curl -L --output "$TEMP_DEB" "$CLOUDFLARED_URL"; then
+        if dpkg -i "$TEMP_DEB" 2>/dev/null || apt-get install -f -y; then
+            log_info "Cloudflared installed successfully: $(cloudflared --version 2>/dev/null || echo 'version check failed')"
+        else
+            log_error "Failed to install cloudflared package"
+            return 1
+        fi
+        
+        # Clean up
+        rm -f "$TEMP_DEB"
+    else
+        log_error "Failed to download cloudflared"
+        return 1
+    fi
+}
+
 # Download project from GitHub
 download_project() {
     log_step "Downloading PteroLite from GitHub..."
@@ -782,6 +832,10 @@ main() {
     else
         log_info "Docker already installed"
     fi
+    
+    # Install Cloudflared for tunneling
+    log_info "Installing Cloudflared..."
+    install_cloudflared
     
     # Download project from GitHub
     download_project

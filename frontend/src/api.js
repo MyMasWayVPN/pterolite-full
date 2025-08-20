@@ -160,3 +160,44 @@ export const executeDockerCommand = async (command) => {
   const response = await api.post('/docker/execute', { command });
   return response.data;
 };
+
+// Cloudflare Tunnel management
+export const getTunnels = async () => {
+  const response = await api.get('/tunnels');
+  return response.data;
+};
+
+export const createTunnel = async (port, name, subdomain) => {
+  const response = await api.post('/tunnels/create', { port, name, subdomain });
+  return response.data;
+};
+
+export const createQuickTunnel = async (port, name) => {
+  const response = await api.post('/tunnels/quick', { port, name });
+  return response.data;
+};
+
+export const getTunnelLogs = async (tunnelId, limit = 100) => {
+  const response = await api.get(`/tunnels/${tunnelId}/logs?limit=${limit}`);
+  return response.data;
+};
+
+export const stopTunnel = async (tunnelId) => {
+  const response = await api.post(`/tunnels/${tunnelId}/stop`);
+  return response.data;
+};
+
+export const removeTunnel = async (tunnelId) => {
+  const response = await api.delete(`/tunnels/${tunnelId}`);
+  return response.data;
+};
+
+export const installCloudflared = async () => {
+  const response = await api.post('/tunnels/install-cloudflared');
+  return response.data;
+};
+
+export const checkCloudflared = async () => {
+  const response = await api.get('/tunnels/check-cloudflared');
+  return response.data;
+};
