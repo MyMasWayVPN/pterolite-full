@@ -126,23 +126,51 @@ class ProcessManager {
     const proc = this.processes.get(id);
     if (proc && proc.process && proc.status === 'running') {
       try {
-        // Try graceful termination first
-        proc.process.kill('SIGTERM');
-        proc.status = 'killed';
-        this.addLog(id, 'system', 'Process killed by user (SIGTERM)');
+        // Kill the entire process group to ensure all child processes are terminated
+        const pid = proc.process.pid;
         
-        // Force kill after 5 seconds if still running
+        if (pid) {
+          try {
+            // Kill the process group (negative PID kills the entire group)
+            process.kill(-pid, 'SIGTERM');
+            this.addLog(id, 'system', `Process group killed (SIGTERM) - PID: ${pid}`);
+          } catch (groupKillError) {
+            // If process group kill fails, try individual process kill
+            proc.process.kill('SIGTERM');
+            this.addLog(id, 'system', `Individual process killed (SIGTERM) - PID: ${pid}`);
+          }
+        } else {
+          proc.process.kill('SIGTERM');
+          this.addLog(id, 'system', 'Process killed (SIGTERM)');
+        }
+        
+        proc.status = 'killed';
+        
+        // Force kill after 3 seconds if still running
         setTimeout(() => {
           const currentProc = this.processes.get(id);
           if (currentProc && currentProc.process && currentProc.status === 'killed') {
             try {
-              currentProc.process.kill('SIGKILL');
-              this.addLog(id, 'system', 'Process force killed (SIGKILL)');
+              const currentPid = currentProc.process.pid;
+              if (currentPid) {
+                try {
+                  // Force kill the process group
+                  process.kill(-currentPid, 'SIGKILL');
+                  this.addLog(id, 'system', `Process group force killed (SIGKILL) - PID: ${currentPid}`);
+                } catch (groupForceKillError) {
+                  // If process group force kill fails, try individual process force kill
+                  currentProc.process.kill('SIGKILL');
+                  this.addLog(id, 'system', `Individual process force killed (SIGKILL) - PID: ${currentPid}`);
+                }
+              } else {
+                currentProc.process.kill('SIGKILL');
+                this.addLog(id, 'system', 'Process force killed (SIGKILL)');
+              }
             } catch (forceKillError) {
               this.addLog(id, 'error', `Failed to force kill process: ${forceKillError.message}`);
             }
           }
-        }, 5000);
+        }, 3000);
         
         return true;
       } catch (error) {
@@ -1257,7 +1285,8 @@ app.post("/console/run", webPanelAuth, (req, res) => {
   try {
     const process = spawn('bash', ['-c', command], {
       cwd: workingDir || '/tmp/pterolite-files',
-      stdio: ['pipe', 'pipe', 'pipe']
+      stdio: ['pipe', 'pipe', 'pipe'],
+      detached: true // Create a new process group
     });
     
     const processInfo = {
@@ -1270,7 +1299,7 @@ app.post("/console/run", webPanelAuth, (req, res) => {
     };
     
     processManager.addProcess(processId, process, processInfo);
-    processManager.addLog(processId, 'system', `Command process started: ${command}`);
+    processManager.addLog(processId, 'system', `Command process started: ${command} (PID: ${process.pid})`);
     
     res.json({
       success: true,
