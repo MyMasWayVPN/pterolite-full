@@ -429,7 +429,7 @@ app.get("/health", (req, res) => {
   res.json({ 
     status: "healthy", 
     timestamp: new Date().toISOString(),
-    version: "2.0.0-stable",
+    version: "2.0.0-simple",
     users: users.size
   });
 });
@@ -462,7 +462,7 @@ process.on('SIGINT', () => {
 // Start server
 const PORT = process.env.PORT || 8088;
 app.listen(PORT, () => {
-  console.log(`🚀 PteroLite API (Stable) running on port ${PORT}`);
+  console.log(`🚀 PteroLite API (Simple) running on port ${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
   console.log(`🔐 Authentication: JWT-based`);
   console.log(`👥 Users loaded: ${users.size}`);

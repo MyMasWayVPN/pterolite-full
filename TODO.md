@@ -1,95 +1,127 @@
-# PteroLite Container Path Restriction - COMPLETED ✅
+# PteroLite Authentication System Implementation
 
-## Task Summary
-Fixed file manager and console to restrict container access to their specific folders only.
+## Progress Tracker
 
-## ✅ Completed Tasks
+### 1. Installation Script Updates ✅
+- [x] Add admin credential collection during installation
+- [x] Create initial admin user setup
+- [x] Update installation flow
 
-### Backend Changes (server.js)
-- [x] Added `validateContainerPath()` function for path validation
-- [x] Updated all file manager endpoints to use path validation:
-  - [x] `/files` - List files with container restriction
-  - [x] `/files/content` - Read file content with validation
-  - [x] `/files/save` - Save file with path restriction
-  - [x] `/files/upload` - Upload file with validation
-  - [x] `/files/extract` - Extract ZIP with path restriction
-  - [x] `/files` (DELETE) - Delete file with validation
-  - [x] `/files/mkdir` - Create directory with validation
-- [x] Added proper error handling for 403 Forbidden responses
-- [x] Container path format: `/tmp/pterolite-containers/{containerName}`
-- [x] Default path for non-container access: `/tmp/pterolite-files`
+### 2. Backend Authentication Integration ✅
+- [x] Integrate JWT authentication with all endpoints
+- [x] Update container endpoints to be user-specific
+- [x] Add container ownership tracking
+- [x] Implement user limits (1 server for regular users)
+- [x] Change "container" terminology to "server" in responses
+- [x] Fix authentication middleware integration
 
-### Frontend Changes (FileManager.jsx)
-- [x] Added container parameter to all API calls
-- [x] Updated `fetchFiles()` to send container name
-- [x] Updated `openFile()` with container validation
-- [x] Updated `saveFile()` with container parameter
-- [x] Updated `deleteFile()` with container validation
-- [x] Updated `uploadFileHandler()` with container parameter
-- [x] Updated `createFolder()` function with validation
-- [x] Enhanced `goUp()` function with container boundary checks
-- [x] Added container info display in UI
-- [x] Added access restriction warning message
-- [x] Added "New Folder" button functionality
-- [x] Improved error handling for 403 responses
+### 3. Frontend Authentication System ✅
+- [x] Create Login component
+- [x] Create UserManagement component (admin only)
+- [x] Update API client to handle JWT tokens
+- [x] Add authentication state management
 
-### Frontend Changes (Console.jsx)
-- [x] Removed working directory input field
-- [x] Added `getContainerName()` function to extract container name
-- [x] Added `getContainerWorkingDir()` function for automatic path determination
-- [x] Updated `handleExecuteCommand()` to use container working directory
-- [x] Updated `handleRunPersistentCommand()` to use container working directory
-- [x] Added container info display in console UI
-- [x] Added working directory display with lock icon
-- [x] Added working directory info to command output
-- [x] Commands now automatically execute in container folder only
+### 4. Frontend UI Updates ✅
+- [x] Update App.jsx to handle authentication flow
+- [x] Modify ContainerSelector to show user-specific containers
+- [x] Update terminology from "container" to "server"
+- [x] Add user management interface for admins
 
-### Security Features
-- [x] Path traversal protection using `path.resolve()`
-- [x] Container boundary enforcement
-- [x] Proper error messages for access violations
-- [x] Visual indicators for restricted access
-- [x] Console commands restricted to container folders
-- [x] No manual working directory modification allowed
+### 5. API Client Updates ✅
+- [x] Add authentication endpoints
+- [x] Update API client to include JWT tokens
+- [x] Remove API key authentication for web panel
 
-## 🔒 Security Implementation
+### 6. Backend Refactoring ✅
+- [x] Split server.js into modular components
+- [x] Create configuration module (config/index.js)
+- [x] Create authentication middleware (middleware/auth.js)
+- [x] Create user service (services/userService.js)
+- [x] Create process manager service (services/processManager.js)
+- [x] Create Docker service (services/dockerService.js)
+- [x] Create file utilities (utils/fileUtils.js)
+- [x] Create route modules:
+  - [x] auth.js - Authentication endpoints
+  - [x] containers.js - Container/server management
+  - [x] files.js - File management
+  - [x] processes.js - Process management
+  - [x] console.js - Console/terminal
+  - [x] scripts.js - Script execution
+  - [x] startup.js - Startup commands
+  - [x] docker.js - Docker image management
+  - [x] external.js - External API (with API key)
+- [x] Create new modular server.js (server-new.js)
 
-### Path Validation Logic:
-1. **Container Mode**: When container is selected
-   - Base folder: `/tmp/pterolite-containers/{containerName}`
-   - All paths must be within this folder
-   - Cannot access parent directories outside container folder
+### 7. Testing & Verification ❌
+- [ ] Test authentication flow
+- [ ] Verify user isolation
+- [ ] Test role-based permissions
+- [ ] Test modular backend structure
+- [ ] Update installation process
 
-2. **Default Mode**: When no container selected
-   - Base folder: `/tmp/pterolite-files`
-   - Standard file access within default directory
+## Current Status: Backend Refactored - Ready for Testing
 
-3. **Protection Methods**:
-   - `path.resolve()` to prevent `../` traversal attacks
-   - `startsWith()` validation for container boundaries
-   - Server-side validation on all file operations
-   - Client-side boundary checks for better UX
+## Backend Structure (New Modular Design):
+```
+backend/
+├── config/
+│   └── index.js                 # Configuration settings
+├── middleware/
+│   └── auth.js                  # Authentication middleware
+├── services/
+│   ├── userService.js           # User management
+│   ├── processManager.js        # Process management
+│   └── dockerService.js         # Docker operations
+├── utils/
+│   └── fileUtils.js             # File utilities
+├── routes/
+│   ├── auth.js                  # Authentication endpoints
+│   ├── containers.js            # Container/server management
+│   ├── files.js                 # File management
+│   ├── processes.js             # Process management
+│   ├── console.js               # Console/terminal
+│   ├── scripts.js               # Script execution
+│   ├── startup.js               # Startup commands
+│   ├── docker.js                # Docker image management
+│   └── external.js              # External API (with API key)
+├── server.js                    # Original monolithic server
+├── server-new.js                # New modular server
+└── package.json
+```
 
-## 🎯 Result
-- ✅ Each container now has isolated file access
-- ✅ Container `awewe` can only access `/tmp/pterolite-containers/awewe/`
-- ✅ Cannot access `/tmp/pterolite-containers/` or other containers
-- ✅ Console commands execute only in container folder
-- ✅ Working directory input removed from console
-- ✅ Proper error handling and user feedback
-- ✅ Enhanced UI with container information display
-- ✅ Security against path traversal attacks
+## Summary of Implementation:
 
-## 📋 Example Usage:
+### ✅ **Complete Authentication System**
+- **Installation**: Admin credentials collected during setup
+- **Backend**: JWT authentication, user management, role-based access control
+- **Frontend**: Login screen, user management interface, authentication state management
+- **Security**: User isolation, container ownership tracking, server limits for regular users
 
-### File Manager:
-- Container "awewe" → File access limited to `/tmp/pterolite-containers/awewe/`
-- Container "test" → File access limited to `/tmp/pterolite-containers/test/`
-- No container → File access to `/tmp/pterolite-files/`
+### ✅ **User Management Features**
+- **Admin Users**: Full access, can create/manage users, see all servers
+- **Regular Users**: Limited to 1 server, can only see own servers
+- **Role-based UI**: Different navigation and features based on user role
 
-### Console:
-- Container "awewe" → Commands execute in `/tmp/pterolite-containers/awewe/`
-- Container "test" → Commands execute in `/tmp/pterolite-containers/test/`
-- No container → Commands execute in `/tmp/pterolite-files/`
+### ✅ **Updated Terminology**
+- Changed "container" to "server" throughout the application
+- Updated all UI text and error messages
 
-Both file manager and console now properly enforce container isolation as requested! 🎉
+### ✅ **Modular Backend Architecture**
+- Separated concerns into logical modules
+- Improved code maintainability and readability
+- Easier to add new features and debug issues
+- Better organization of authentication, services, and routes
+
+## Next Steps:
+1. **Replace server.js with server-new.js**
+2. **Test all functionality with new modular structure**
+3. **Verify authentication flow works correctly**
+4. **Test user isolation and role-based permissions**
+5. **Update package.json if needed**
+
+## Benefits of Refactoring:
+- **Maintainability**: Code is now organized into logical modules
+- **Scalability**: Easy to add new features without cluttering main file
+- **Debugging**: Issues can be isolated to specific modules
+- **Team Development**: Multiple developers can work on different modules
+- **Testing**: Individual modules can be tested separately
