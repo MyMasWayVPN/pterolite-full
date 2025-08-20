@@ -179,89 +179,6 @@ get_domain() {
     done
 }
 
-# Interactive admin user setup
-setup_admin_user() {
-    echo ""
-    log_info "Admin User Configuration"
-    echo "================================"
-    log_info "Create the initial admin user for PteroLite web panel"
-    echo ""
-    
-    # Get admin username
-    while true; do
-        read -p "Enter admin username: " ADMIN_USERNAME
-        
-        if [[ -z "$ADMIN_USERNAME" ]]; then
-            log_error "Username cannot be empty."
-            continue
-        fi
-        
-        if [[ ! "$ADMIN_USERNAME" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-            log_error "Username can only contain letters, numbers, underscores, and hyphens."
-            continue
-        fi
-        
-        if [[ ${#ADMIN_USERNAME} -lt 3 ]]; then
-            log_error "Username must be at least 3 characters long."
-            continue
-        fi
-        
-        log_info "Username '$ADMIN_USERNAME' is valid"
-        break
-    done
-    
-    # Get admin email
-    while true; do
-        read -p "Enter admin email: " ADMIN_EMAIL
-        
-        if [[ -z "$ADMIN_EMAIL" ]]; then
-            log_error "Email cannot be empty."
-            continue
-        fi
-        
-        if [[ ! "$ADMIN_EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
-            log_error "Invalid email format."
-            continue
-        fi
-        
-        log_info "Email '$ADMIN_EMAIL' is valid"
-        break
-    done
-    
-    # Get admin password
-    while true; do
-        read -s -p "Enter admin password (min 6 characters): " ADMIN_PASSWORD
-        echo ""
-        
-        if [[ -z "$ADMIN_PASSWORD" ]]; then
-            log_error "Password cannot be empty."
-            continue
-        fi
-        
-        if [[ ${#ADMIN_PASSWORD} -lt 6 ]]; then
-            log_error "Password must be at least 6 characters long."
-            continue
-        fi
-        
-        read -s -p "Confirm admin password: " ADMIN_PASSWORD_CONFIRM
-        echo ""
-        
-        if [[ "$ADMIN_PASSWORD" != "$ADMIN_PASSWORD_CONFIRM" ]]; then
-            log_error "Passwords do not match. Please try again."
-            continue
-        fi
-        
-        log_info "Password confirmed successfully"
-        break
-    done
-    
-    echo ""
-    log_info "Admin user configuration completed:"
-    log_info "Username: $ADMIN_USERNAME"
-    log_info "Email: $ADMIN_EMAIL"
-    log_info "Password: [HIDDEN]"
-}
-
 # Interactive SSL setup
 setup_ssl_interactive() {
     echo ""
@@ -279,8 +196,22 @@ setup_ssl_interactive() {
             1)
                 log_info "Setting up Let's Encrypt SSL certificate..."
                 
-                # Use admin email for Let's Encrypt if not provided
-                ssl_email="$ADMIN_EMAIL"
+                # Get email for Let's Encrypt
+                while true; do
+                    read -p "Enter email for Let's Encrypt notifications: " ssl_email
+                    
+                    if [[ -z "$ssl_email" ]]; then
+                        log_error "Email cannot be empty."
+                        continue
+                    fi
+                    
+                    if [[ ! "$ssl_email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
+                        log_error "Invalid email format."
+                        continue
+                    fi
+                    
+                    break
+                done
                 
                 # Attempt SSL certificate installation without redirect
                 log_info "Installing SSL certificate for $DOMAIN..."
@@ -350,24 +281,7 @@ EOF
         sed -i 's/const API_KEY = process.env.API_KEY || "supersecretkey";/const API_KEY = process.env.API_KEY;/' server.js
     fi
     
-    # Create initial admin user
-    log_info "Creating initial admin user..."
-    create_initial_admin_user
-    
     log_info "Backend setup completed"
-}
-
-# Create initial admin user
-create_initial_admin_user() {
-    log_info "Creating initial admin user..."
-    
-    # Use the existing create_admin.js script
-    if node create_admin.js "$ADMIN_USERNAME" "$ADMIN_EMAIL" "$ADMIN_PASSWORD"; then
-        log_info "✅ Admin user created successfully"
-    else
-        log_error "❌ Failed to create admin user"
-        exit 1
-    fi
 }
 
 # Setup frontend
@@ -686,15 +600,6 @@ verify_installation() {
         HTTP_ACCESS="⚠️ Not Accessible"
     fi
     
-    # Test API endpoint
-    if curl -s -H "X-API-Key: $API_KEY" "http://localhost:8088/containers" >/dev/null 2>&1; then
-        log_info "✅ API endpoint is responding"
-        API_STATUS="✅ Responding"
-    else
-        log_warn "⚠️ API endpoint not responding"
-        API_STATUS="⚠️ Not Responding"
-    fi
-    
     log_info "Installation verification completed"
 }
 
@@ -713,7 +618,6 @@ show_summary() {
     printf "%-20s %s\n" "Docker Service:" "$DOCKER_STATUS"
     printf "%-20s %s\n" "Backend Port:" "$PORT_STATUS"
     printf "%-20s %s\n" "HTTP Access:" "$HTTP_ACCESS"
-    printf "%-20s %s\n" "API Endpoint:" "$API_STATUS"
     
     # Installation Details
     echo ""
@@ -726,15 +630,6 @@ show_summary() {
     log_info "Install Directory: $INSTALL_DIR"
     log_info "Web Root: $WEB_ROOT"
     log_info "GitHub Repository: $GITHUB_REPO"
-    
-    # Admin User Details
-    echo ""
-    log_info "👤 ADMIN USER DETAILS:"
-    echo "================================"
-    log_info "Username: $ADMIN_USERNAME"
-    log_info "Email: $ADMIN_EMAIL"
-    log_info "Role: admin"
-    log_info "Password: [Use the password you entered during installation]"
     
     # Access Information
     echo ""
@@ -752,13 +647,6 @@ show_summary() {
         log_info "API Eksternal: http://$DOMAIN/external-api (perlu X-API-Key header)"
         PANEL_URL="http://$DOMAIN"
     fi
-    
-    echo ""
-    log_info "🔑 LOGIN CREDENTIALS:"
-    echo "================================"
-    log_info "Username: $ADMIN_USERNAME"
-    log_info "Password: [Use the password you entered during installation]"
-    log_info "Role: Administrator"
     
     # Features
     echo ""
@@ -787,14 +675,12 @@ show_summary() {
     log_info "• Restart nginx: systemctl restart nginx"
     log_info "• Check docker status: systemctl status docker"
     
-    # Security Reminder
+    # Access Information
     echo ""
-    log_info "🔐 SECURITY INFORMATION:"
+    log_info "🌐 ACCESS INFORMATION:"
     echo "================================"
-    log_info "• Web Panel requires login with username/password"
-    log_info "• Admin users can create/manage other users"
-    log_info "• Regular users are limited to 1 server each"
-    log_info "• Users can only access their own servers"
+    log_info "• Web Panel: No authentication required"
+    log_info "• Direct access to container management"
     log_info "• API key untuk akses eksternal: $API_KEY"
     log_info "• External API requires X-API-Key header: /external-api/*"
     
@@ -802,10 +688,10 @@ show_summary() {
     log_info "🎯 NEXT STEPS:"
     echo "================================"
     log_info "1. Visit $PANEL_URL to access the web panel"
-    log_info "2. Login with admin credentials: $ADMIN_USERNAME"
-    log_info "3. Create additional users if needed (Admin only)"
-    log_info "4. Start creating and managing your Docker servers"
-    log_info "5. Each user can create up to 1 server (regular users)"
+    log_info "2. Create your first container to get started"
+    log_info "3. Upload files and manage your containers"
+    log_info "4. Use the console to run commands and scripts"
+    log_info "5. Enjoy the full container management experience"
     
     # Save installation info
     cat > "$INSTALL_DIR/installation-info.txt" <<EOF
@@ -819,11 +705,6 @@ JWT Secret: $JWT_SECRET
 Install Directory: $INSTALL_DIR
 Web Root: $WEB_ROOT
 GitHub Repository: $GITHUB_REPO
-
-Admin User:
-- Username: $ADMIN_USERNAME
-- Email: $ADMIN_EMAIL
-- Role: admin
 
 Services:
 - Backend: systemd service (pterolite)
@@ -881,9 +762,6 @@ main() {
     
     # Interactive domain input
     get_domain
-    
-    # Interactive admin user setup
-    setup_admin_user
     
     # System updates
     log_step "Updating system packages..."

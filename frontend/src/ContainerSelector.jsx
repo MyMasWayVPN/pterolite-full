@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getContainers, startContainer, stopContainer, deleteContainer, createContainer } from './api';
 
-const ContainerSelector = ({ onContainerSelect, selectedContainer, currentUser }) => {
+const ContainerSelector = ({ onContainerSelect, selectedContainer }) => {
   const [containers, setContainers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -36,12 +36,6 @@ const ContainerSelector = ({ onContainerSelect, selectedContainer, currentUser }
 
   const handleCreateContainer = async () => {
     if (isCreating) return; // Prevent double creation
-    
-    // Check user limits
-    if (currentUser.role === 'user' && containers.length >= 1) {
-      alert('Server limit reached. Regular users can only create 1 server. Contact your administrator for more servers.');
-      return;
-    }
     
     setIsCreating(true);
     try {
@@ -187,18 +181,12 @@ const ContainerSelector = ({ onContainerSelect, selectedContainer, currentUser }
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-white mb-2">🐳 PteroLite Server Manager</h1>
           <p className="text-gray-300 text-lg">Select or create a server to get started</p>
-          {currentUser && (
-            <div className="mt-4 bg-blue-900 bg-opacity-30 border border-blue-700 rounded-lg p-3 inline-block">
-              <p className="text-blue-200 text-sm">
-                Welcome, <span className="font-medium text-blue-300">{currentUser.username}</span>
-                {currentUser.role === 'user' && (
-                  <span className="ml-2 text-yellow-300">
-                    (Server limit: {containers.length}/1)
-                  </span>
-                )}
-              </p>
-            </div>
-          )}
+          <div className="mt-4 bg-green-900 bg-opacity-30 border border-green-700 rounded-lg p-3 inline-block">
+            <p className="text-green-200 text-sm">
+              <span className="font-medium text-green-300">PteroLite Panel</span>
+              <span className="ml-2 text-green-300">- No Authentication Required</span>
+            </p>
+          </div>
         </div>
 
         {/* Selected Container Info */}
