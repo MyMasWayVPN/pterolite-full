@@ -213,8 +213,9 @@ const Console = ({ selectedContainer, containerFolder }) => {
           workingDir: containerWorkingDir
         };
         setOutput(prev => [...prev, newOutput]);
-        setCommand('');
-        setProcessName('');
+        // Don't clear command and processName - keep them for single process per container
+        // setCommand('');
+        // setProcessName('');
         loadProcesses();
         
         // Automatically select the new process to show its logs
@@ -334,6 +335,164 @@ const Console = ({ selectedContainer, containerFolder }) => {
         type: 'error',
         timestamp: new Date().toLocaleTimeString(),
         error: `Failed to remove process: ${error.message}`
+      };
+      setOutput(prev => [...prev, errorOutput]);
+    }
+  };
+
+  const handleStartProcess = async (processId) => {
+    try {
+      const process = processes[processId];
+      if (!process || !process.info.command) {
+        const errorOutput = {
+          id: Date.now(),
+          type: 'error',
+          timestamp: new Date().toLocaleTimeString(),
+          error: `Cannot start process: No command information available`
+        };
+        setOutput(prev => [...prev, errorOutput]);
+        return;
+      }
+
+      // Check if there's already a running process
+      const runningProcesses = Object.values(processes).filter(p => p.status === 'running');
+      if (runningProcesses.length > 0) {
+        const errorOutput = {
+          id: Date.now(),
+          type: 'error',
+          timestamp: new Date().toLocaleTimeString(),
+          error: `Cannot start process. ${runningProcesses.length} process(es) already running.`
+        };
+        setOutput(prev => [...prev, errorOutput]);
+        return;
+      }
+
+      const startOutput = {
+        id: Date.now(),
+        type: 'info',
+        timestamp: new Date().toLocaleTimeString(),
+        message: `▶️ Starting process: ${process.info.name}`
+      };
+      setOutput(prev => [...prev, startOutput]);
+
+      const result = await runCommand(
+        process.info.command, 
+        process.info.workingDir || getContainerWorkingDir(), 
+        process.info.name, 
+        selectedContainer?.Id
+      );
+
+      if (result.success) {
+        // Store command for auto restart
+        setLastCommand(process.info.command);
+        setLastProcessName(process.info.name);
+
+        const successOutput = {
+          id: Date.now(),
+          type: 'success',
+          timestamp: new Date().toLocaleTimeString(),
+          message: `✅ Process started: ${result.processId}`,
+          workingDir: process.info.workingDir || getContainerWorkingDir()
+        };
+        setOutput(prev => [...prev, successOutput]);
+        
+        // Remove the old process entry and load new processes
+        await removeProcess(processId);
+        loadProcesses();
+        
+        // Auto-select the new process
+        setSelectedProcess(result.processId);
+        loadProcessLogs(result.processId);
+      }
+    } catch (error) {
+      const errorOutput = {
+        id: Date.now(),
+        type: 'error',
+        timestamp: new Date().toLocaleTimeString(),
+        error: `Failed to start process: ${error.message}`
+      };
+      setOutput(prev => [...prev, errorOutput]);
+    }
+  };
+
+  const handleRestartProcess = async (processId) => {
+    try {
+      const process = processes[processId];
+      if (!process || !process.info.command) {
+        const errorOutput = {
+          id: Date.now(),
+          type: 'error',
+          timestamp: new Date().toLocaleTimeString(),
+          error: `Cannot restart process: No command information available`
+        };
+        setOutput(prev => [...prev, errorOutput]);
+        return;
+      }
+
+      const restartOutput = {
+        id: Date.now(),
+        type: 'info',
+        timestamp: new Date().toLocaleTimeString(),
+        message: `🔄 Restarting process: ${process.info.name}`
+      };
+      setOutput(prev => [...prev, restartOutput]);
+
+      // Kill the process if it's running
+      if (process.status === 'running') {
+        await killProcess(processId);
+        // Wait for process to be killed
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+
+      // Remove the old process
+      await removeProcess(processId);
+      
+      // Wait a moment then start new process
+      setTimeout(async () => {
+        try {
+          const result = await runCommand(
+            process.info.command, 
+            process.info.workingDir || getContainerWorkingDir(), 
+            process.info.name, 
+            selectedContainer?.Id
+          );
+
+          if (result.success) {
+            // Store command for auto restart
+            setLastCommand(process.info.command);
+            setLastProcessName(process.info.name);
+
+            const successOutput = {
+              id: Date.now(),
+              type: 'success',
+              timestamp: new Date().toLocaleTimeString(),
+              message: `✅ Process restarted: ${result.processId}`,
+              workingDir: process.info.workingDir || getContainerWorkingDir()
+            };
+            setOutput(prev => [...prev, successOutput]);
+            loadProcesses();
+            
+            // Auto-select the restarted process
+            setSelectedProcess(result.processId);
+            loadProcessLogs(result.processId);
+          }
+        } catch (error) {
+          const errorOutput = {
+            id: Date.now(),
+            type: 'error',
+            timestamp: new Date().toLocaleTimeString(),
+            error: `Failed to restart process: ${error.message}`
+          };
+          setOutput(prev => [...prev, errorOutput]);
+        }
+      }, 1000);
+
+    } catch (error) {
+      const errorOutput = {
+        id: Date.now(),
+        type: 'error',
+        timestamp: new Date().toLocaleTimeString(),
+        error: `Failed to restart process: ${error.message}`
       };
       setOutput(prev => [...prev, errorOutput]);
     }
@@ -704,20 +863,48 @@ const Console = ({ selectedContainer, containerFolder }) => {
                           ID: {process.id.substring(0, 8)}
                         </div>
                       </div>
-                      <div className="flex space-x-1 ml-2">
-                        {process.status === 'running' && (
-                          <button
-                            onClick={() => handleKillProcess(process.id)}
-                            className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
-                          >
-                            Kill
-                          </button>
+                      <div className="flex flex-col space-y-1 ml-2">
+                        {process.status === 'running' ? (
+                          <div className="flex space-x-1">
+                            <button
+                              onClick={() => handleKillProcess(process.id)}
+                              className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                              title="Stop Process"
+                            >
+                              🛑 Stop
+                            </button>
+                            <button
+                              onClick={() => handleRestartProcess(process.id)}
+                              className="px-2 py-1 text-xs bg-orange-600 text-white rounded hover:bg-orange-700"
+                              title="Restart Process"
+                            >
+                              🔄 Restart
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex space-x-1">
+                            <button
+                              onClick={() => handleStartProcess(process.id)}
+                              className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700"
+                              title="Start Process"
+                            >
+                              ▶️ Start
+                            </button>
+                            <button
+                              onClick={() => handleRestartProcess(process.id)}
+                              className="px-2 py-1 text-xs bg-orange-600 text-white rounded hover:bg-orange-700"
+                              title="Restart Process"
+                            >
+                              🔄 Restart
+                            </button>
+                          </div>
                         )}
                         <button
                           onClick={() => handleRemoveProcess(process.id)}
                           className="px-2 py-1 text-xs bg-gray-600 text-white rounded hover:bg-gray-700"
+                          title="Remove Process"
                         >
-                          Remove
+                          🗑️ Remove
                         </button>
                       </div>
                     </div>
