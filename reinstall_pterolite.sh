@@ -61,6 +61,14 @@ get_existing_domain() {
 backup_installation() {
     log_step "Creating backup of existing installation..."
     
+    # Remove old backups, keep only the latest one
+    log_info "Cleaning up old backups..."
+    OLD_BACKUPS=$(find /opt -name "pterolite-backup-*" -type d 2>/dev/null | sort -r | tail -n +2)
+    if [[ -n "$OLD_BACKUPS" ]]; then
+        echo "$OLD_BACKUPS" | xargs rm -rf
+        log_info "Removed old backup directories"
+    fi
+    
     if [[ -d "$INSTALL_DIR" ]]; then
         log_info "Backing up $INSTALL_DIR to $BACKUP_DIR"
         mkdir -p "$BACKUP_DIR"
@@ -626,13 +634,29 @@ verify_installation() {
         HTTPS_ACCESS="N/A (No SSL)"
     fi
     
-    # Test backend API
-    if curl -s -o /dev/null -w "%{http_code}" http://localhost:8088 2>/dev/null | grep -q "401\|200"; then
-        log_info "✅ Backend API responding"
-        API_STATUS="✅ Responding"
+    # Test backend API through nginx proxy
+    if [[ "$SSL_STATUS" == "valid" ]]; then
+        if curl -s -k "https://$DOMAIN/api/containers" >/dev/null 2>&1; then
+            log_info "✅ Backend API responding (HTTPS)"
+            API_STATUS="✅ Responding"
+        elif curl -s -o /dev/null -w "%{http_code}" http://localhost:8088 2>/dev/null | grep -q "401\|200"; then
+            log_info "✅ Backend API responding (direct connection)"
+            API_STATUS="✅ Responding"
+        else
+            log_warn "⚠️ Backend API test failed"
+            API_STATUS="⚠️ Failed"
+        fi
     else
-        log_warn "⚠️ Backend API test failed"
-        API_STATUS="⚠️ Failed"
+        if curl -s "http://$DOMAIN/api/containers" >/dev/null 2>&1; then
+            log_info "✅ Backend API responding (HTTP)"
+            API_STATUS="✅ Responding"
+        elif curl -s -o /dev/null -w "%{http_code}" http://localhost:8088 2>/dev/null | grep -q "401\|200"; then
+            log_info "✅ Backend API responding (direct connection)"
+            API_STATUS="✅ Responding"
+        else
+            log_warn "⚠️ Backend API test failed"
+            API_STATUS="⚠️ Failed"
+        fi
     fi
     
     log_info "Installation verification completed"

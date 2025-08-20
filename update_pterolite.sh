@@ -82,6 +82,14 @@ detect_installation() {
 create_backup() {
     log_step "Creating backup..."
     
+    # Remove old backups, keep only the latest one
+    log_info "Cleaning up old backups..."
+    OLD_BACKUPS=$(find /opt -name "pterolite-backup-*" -type d 2>/dev/null | sort -r | tail -n +2)
+    if [[ -n "$OLD_BACKUPS" ]]; then
+        echo "$OLD_BACKUPS" | xargs rm -rf
+        log_info "Removed old backup directories"
+    fi
+    
     mkdir -p "$BACKUP_DIR"
     
     # Backup application files
@@ -138,12 +146,27 @@ stop_services() {
 update_application() {
     log_step "Updating application files..."
     
-    # Copy backend files
+    # Download and setup backend files
     if [[ -d "$SCRIPT_DIR/backend" ]]; then
         cp -r "$SCRIPT_DIR/backend/"* "$INSTALL_DIR/"
-        log_info "Backend files updated"
+        log_info "Backend files updated from local directory"
     else
         log_warn "Backend directory not found in script location"
+        log_info "Downloading backend files from GitHub..."
+        TEMP_DIR="/tmp/pterolite-update-$(date +%s)"
+        mkdir -p "$TEMP_DIR"
+        cd "$TEMP_DIR"
+        
+        if git clone https://github.com/MyMasWayVPN/pterolite-full.git; then
+            cp -r pterolite-full/backend/* "$INSTALL_DIR/"
+            log_info "Backend files downloaded and updated"
+        else
+            log_error "Failed to download backend files from GitHub"
+            exit 1
+        fi
+        
+        # Cleanup temp directory
+        rm -rf "$TEMP_DIR"
     fi
     
     # Install/update dependencies
@@ -179,9 +202,36 @@ update_frontend() {
         chown -R www-data:www-data "$WEB_ROOT"
         chmod -R 755 "$WEB_ROOT"
         
-        log_info "Frontend built and deployed"
+        log_info "Frontend built and deployed from local directory"
     else
         log_warn "Frontend directory not found in script location"
+        log_info "Downloading and building frontend from GitHub..."
+        TEMP_DIR="/tmp/pterolite-frontend-$(date +%s)"
+        mkdir -p "$TEMP_DIR"
+        cd "$TEMP_DIR"
+        
+        if git clone https://github.com/MyMasWayVPN/pterolite-full.git; then
+            cd pterolite-full/frontend
+            npm install
+            npm run build
+            
+            # Deploy to web root
+            mkdir -p "$WEB_ROOT"
+            rm -rf "$WEB_ROOT"/*
+            cp -r dist/* "$WEB_ROOT/"
+            
+            # Set proper permissions
+            chown -R www-data:www-data "$WEB_ROOT"
+            chmod -R 755 "$WEB_ROOT"
+            
+            log_info "Frontend downloaded, built and deployed"
+        else
+            log_error "Failed to download frontend files from GitHub"
+            exit 1
+        fi
+        
+        # Cleanup temp directory
+        rm -rf "$TEMP_DIR"
     fi
 }
 
@@ -493,13 +543,26 @@ start_services() {
 test_services() {
     log_step "Testing services..."
     
-    # Test backend API
+    # Test backend API through nginx proxy
     sleep 5
-    if curl -s http://localhost:8088/containers >/dev/null; then
-        log_info "✅ Backend API is responding"
+    if [[ "$SSL_STATUS" == "valid" ]]; then
+        if curl -s -k "https://$DOMAIN/api/containers" >/dev/null 2>&1; then
+            log_info "✅ Backend API is responding (HTTPS)"
+        elif curl -s "http://localhost:8088/containers" >/dev/null 2>&1; then
+            log_info "✅ Backend API is responding (direct connection)"
+        else
+            log_error "❌ Backend API is not responding"
+            return 1
+        fi
     else
-        log_error "❌ Backend API is not responding"
-        return 1
+        if curl -s "http://$DOMAIN/api/containers" >/dev/null 2>&1; then
+            log_info "✅ Backend API is responding (HTTP)"
+        elif curl -s "http://localhost:8088/containers" >/dev/null 2>&1; then
+            log_info "✅ Backend API is responding (direct connection)"
+        else
+            log_error "❌ Backend API is not responding"
+            return 1
+        fi
     fi
     
     # Test frontend
