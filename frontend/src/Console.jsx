@@ -10,21 +10,103 @@ const Console = ({ selectedContainer, containerFolder }) => {
   const [selectedProcess, setSelectedProcess] = useState(null);
   const [processLogs, setProcessLogs] = useState([]);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [autoRestart, setAutoRestart] = useState(true);
   const [processName, setProcessName] = useState('');
+  const [lastCommand, setLastCommand] = useState('');
+  const [lastProcessName, setLastProcessName] = useState('');
   const outputRef = useRef(null);
 
   // Auto-refresh processes and logs
   useEffect(() => {
     if (autoRefresh) {
-      const interval = setInterval(() => {
-        loadProcesses();
+      const interval = setInterval(async () => {
+        const prevProcesses = { ...processes };
+        await loadProcesses();
+        
+        // Check for finished processes and handle auto-restart/auto-remove
+        Object.values(prevProcesses).forEach(async (process) => {
+          if (process.status === 'running') {
+            // Check if process is now finished
+            const currentProcess = processes[process.id];
+            if (currentProcess && (currentProcess.status === 'finished' || currentProcess.status === 'error')) {
+              
+              // Auto-restart if enabled and we have a last command
+              if (autoRestart && lastCommand && Object.keys(processes).length === 1) {
+                setTimeout(async () => {
+                  try {
+                    // Remove the finished process first
+                    await removeProcess(process.id);
+                    
+                    // Add restart message to output
+                    const restartOutput = {
+                      id: Date.now(),
+                      type: 'info',
+                      timestamp: new Date().toLocaleTimeString(),
+                      message: `🔄 Auto-restarting process: ${lastProcessName}`,
+                      workingDir: getContainerWorkingDir()
+                    };
+                    setOutput(prev => [...prev, restartOutput]);
+                    
+                    // Wait a moment then restart
+                    setTimeout(async () => {
+                      try {
+                        const result = await runCommand(lastCommand, getContainerWorkingDir(), lastProcessName, selectedContainer?.Id);
+                        if (result.success) {
+                          const newOutput = {
+                            id: Date.now(),
+                            type: 'success',
+                            timestamp: new Date().toLocaleTimeString(),
+                            message: `✅ Process restarted: ${result.processId}`,
+                            workingDir: getContainerWorkingDir()
+                          };
+                          setOutput(prev => [...prev, newOutput]);
+                          loadProcesses();
+                          
+                          // Auto-select the restarted process
+                          setSelectedProcess(result.processId);
+                          loadProcessLogs(result.processId);
+                        }
+                      } catch (error) {
+                        const errorOutput = {
+                          id: Date.now(),
+                          type: 'error',
+                          timestamp: new Date().toLocaleTimeString(),
+                          error: `❌ Auto-restart failed: ${error.message}`
+                        };
+                        setOutput(prev => [...prev, errorOutput]);
+                      }
+                    }, 1000);
+                    
+                  } catch (error) {
+                    console.error('Failed to auto-restart process:', error);
+                  }
+                }, 2000); // Wait 2 seconds before restarting
+              } else {
+                // Auto-remove finished processes after a short delay (if not restarting)
+                setTimeout(async () => {
+                  try {
+                    await removeProcess(process.id);
+                    loadProcesses();
+                    if (selectedProcess === process.id) {
+                      setSelectedProcess(null);
+                      setProcessLogs([]);
+                    }
+                  } catch (error) {
+                    console.error('Failed to auto-remove finished process:', error);
+                  }
+                }, 3000); // Wait 3 seconds before removing
+              }
+            }
+          }
+        });
+        
         if (selectedProcess) {
           loadProcessLogs(selectedProcess);
         }
       }, 2000);
       return () => clearInterval(interval);
     }
-  }, [autoRefresh, selectedProcess]);
+  }, [autoRefresh, selectedProcess, processes, autoRestart, lastCommand, lastProcessName, selectedContainer]);
 
   // Load processes on mount and restore persistent output
   useEffect(() => {
@@ -96,40 +178,6 @@ const Console = ({ selectedContainer, containerFolder }) => {
     }
   };
 
-  const handleExecuteCommand = async () => {
-    if (!command.trim()) return;
-
-    setIsLoading(true);
-    const containerWorkingDir = getContainerWorkingDir();
-    
-    try {
-      const result = await executeCommand(command, containerWorkingDir);
-      const newOutput = {
-        id: Date.now(),
-        type: 'command',
-        command: command,
-        timestamp: new Date().toLocaleTimeString(),
-        stdout: result.stdout,
-        stderr: result.stderr,
-        error: result.error,
-        exitCode: result.exitCode,
-        workingDir: containerWorkingDir
-      };
-      setOutput(prev => [...prev, newOutput]);
-      setCommand('');
-    } catch (error) {
-      const errorOutput = {
-        id: Date.now(),
-        type: 'error',
-        timestamp: new Date().toLocaleTimeString(),
-        error: error.message
-      };
-      setOutput(prev => [...prev, errorOutput]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const handleRunPersistentCommand = async () => {
     if (!command.trim()) return;
 
@@ -153,11 +201,15 @@ const Console = ({ selectedContainer, containerFolder }) => {
     try {
       const result = await runCommand(command, containerWorkingDir, processName || `Command: ${command.substring(0, 30)}`, selectedContainer?.Id);
       if (result.success) {
+        // Store command for auto restart
+        setLastCommand(command);
+        setLastProcessName(processName || `Command: ${command.substring(0, 30)}`);
+        
         const newOutput = {
           id: Date.now(),
           type: 'success',
           timestamp: new Date().toLocaleTimeString(),
-          message: `Started persistent process: ${result.processId}`,
+          message: `Started process: ${result.processId}${autoRestart ? ' (Auto Restart enabled)' : ''}`,
           workingDir: containerWorkingDir
         };
         setOutput(prev => [...prev, newOutput]);
@@ -201,14 +253,10 @@ const Console = ({ selectedContainer, containerFolder }) => {
       
       // If process is still running, kill it first
       if (process && process.status === 'running') {
-        const confirmKill = confirm(`Process "${process.info.name}" is still running. Do you want to stop it first before removing?`);
-        if (confirmKill) {
-          await killProcess(processId);
-          // Wait a moment for the process to be killed
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        } else {
-          return; // User cancelled, don't remove
-        }
+        await killProcess(processId);
+        // Wait a moment for the process to be killed
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
       }
       
       await removeProcess(processId);
@@ -312,6 +360,23 @@ const Console = ({ selectedContainer, containerFolder }) => {
                 />
               </div>
 
+              <div className="flex items-center space-x-4">
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={autoRestart}
+                    onChange={(e) => setAutoRestart(e.target.checked)}
+                    className="mr-2"
+                  />
+                  <span className="text-sm text-gray-300">🔄 Auto Restart (restart script when it stops)</span>
+                  {autoRestart && lastCommand && (
+                    <span className="ml-2 bg-green-800 text-green-200 px-2 py-1 rounded text-xs">
+                      ✅ ACTIVE
+                    </span>
+                  )}
+                </label>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">Command</label>
                 <div className="flex space-x-2">
@@ -319,7 +384,7 @@ const Console = ({ selectedContainer, containerFolder }) => {
                     type="text"
                     value={command}
                     onChange={(e) => setCommand(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleExecuteCommand()}
+                    onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleRunPersistentCommand()}
                     className="flex-1 px-3 py-2 bg-dark-tertiary border border-dark text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono"
                     placeholder="Enter command (e.g., ls -la, python3 script.py)"
                     disabled={isLoading}
@@ -328,26 +393,19 @@ const Console = ({ selectedContainer, containerFolder }) => {
               </div>
 
               <div className="flex space-x-2">
-                <button
-                  onClick={handleExecuteCommand}
-                  disabled={isLoading || !command.trim()}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isLoading ? 'Menjalankan...' : 'Jalankan Perintah'}
-                </button>
                 <div className="relative">
                   <button
                     onClick={handleRunPersistentCommand}
                     disabled={isLoading || !command.trim() || Object.values(processes).some(p => p.status === 'running')}
-                    className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     title={Object.values(processes).some(p => p.status === 'running') ? 
                       `Cannot start new process. ${Object.values(processes).filter(p => p.status === 'running').length} process(es) already running.` : 
-                      'Run command as persistent background process'
+                      'Run command and monitor process'
                     }
                   >
-                    {Object.values(processes).some(p => p.status === 'running') ? 
+                    {isLoading ? 'Menjalankan...' : Object.values(processes).some(p => p.status === 'running') ? 
                       '🚫 Proses Berjalan' : 
-                      'Jalankan Di Belakang'
+                      'Jalankan Perintah'
                     }
                   </button>
                   {Object.values(processes).some(p => p.status === 'running') && (
