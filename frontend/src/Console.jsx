@@ -164,6 +164,10 @@ const Console = ({ selectedContainer, containerFolder }) => {
         setCommand('');
         setProcessName('');
         loadProcesses();
+        
+        // Automatically select the new process to show its logs
+        setSelectedProcess(result.processId);
+        loadProcessLogs(result.processId);
       }
     } catch (error) {
       const errorOutput = {
@@ -193,6 +197,20 @@ const Console = ({ selectedContainer, containerFolder }) => {
 
   const handleRemoveProcess = async (processId) => {
     try {
+      const process = processes[processId];
+      
+      // If process is still running, kill it first
+      if (process && process.status === 'running') {
+        const confirmKill = confirm(`Process "${process.info.name}" is still running. Do you want to stop it first before removing?`);
+        if (confirmKill) {
+          await killProcess(processId);
+          // Wait a moment for the process to be killed
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        } else {
+          return; // User cancelled, don't remove
+        }
+      }
+      
       await removeProcess(processId);
       loadProcesses();
       if (selectedProcess === processId) {
@@ -256,7 +274,7 @@ const Console = ({ selectedContainer, containerFolder }) => {
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <div>
-                        <strong className="text-white">Container:</strong> 
+                        <strong className="text-white">Server:</strong> 
                         <span className="ml-2 text-green-400">{selectedContainer.Names?.[0]?.replace('/', '') || 'Unknown'}</span>
                         <span className="ml-2 text-gray-400">({selectedContainer.State})</span>
                       </div>
@@ -266,18 +284,18 @@ const Console = ({ selectedContainer, containerFolder }) => {
                       <code className="ml-2 text-blue-400 bg-dark px-2 py-1 rounded">{getContainerWorkingDir()}</code>
                     </div>
                     <div className="mt-2 text-sm text-yellow-400">
-                      🔒 Commands will execute in container folder only
+                      🔒 Commands will execute in server folder only
                     </div>
                   </div>
                 ) : (
                   <div>
-                    <div className="text-yellow-400 mb-2">⚠️ No container selected</div>
+                    <div className="text-yellow-400 mb-2">⚠️ No server selected</div>
                     <div>
                       <strong className="text-white">Working Directory:</strong> 
                       <code className="ml-2 text-blue-400 bg-dark px-2 py-1 rounded">/tmp/pterolite-files</code>
                     </div>
                     <div className="mt-2 text-sm text-gray-400">
-                      Select a container to restrict command execution to container folder
+                      Select a server to restrict command execution to server folder
                     </div>
                   </div>
                 )}

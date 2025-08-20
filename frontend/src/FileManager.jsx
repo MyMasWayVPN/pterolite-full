@@ -3,7 +3,12 @@ import { api } from './api.js'
 
 export default function FileManager({ selectedContainer, containerFolder }) {
   const [files, setFiles] = useState([])
-  const [currentPath, setCurrentPath] = useState(containerFolder || '/tmp/pterolite-files')
+  const [currentPath, setCurrentPath] = useState(() => {
+    // Try to restore saved path for this container, fallback to containerFolder
+    const containerName = selectedContainer?.Names?.[0]?.replace('/', '') || 'default'
+    const savedPath = localStorage.getItem(`fileManagerPath_${containerName}`)
+    return savedPath || containerFolder || '/tmp/pterolite-files'
+  })
   const [loading, setLoading] = useState(false)
   const [selectedFile, setSelectedFile] = useState(null)
   const [fileContent, setFileContent] = useState('')
@@ -216,6 +221,14 @@ export default function FileManager({ selectedContainer, containerFolder }) {
     }
   }, [containerFolder]);
 
+  // Save current path to localStorage when it changes
+  useEffect(() => {
+    const containerName = getContainerName() || 'default'
+    if (currentPath && containerName) {
+      localStorage.setItem(`fileManagerPath_${containerName}`, currentPath)
+    }
+  }, [currentPath, selectedContainer]);
+
   const formatFileSize = (bytes) => {
     if (bytes === 0) return '0 Bytes'
     const k = 1024
@@ -228,11 +241,11 @@ export default function FileManager({ selectedContainer, containerFolder }) {
     <div className="p-4">
       <h2 className="text-2xl font-bold mb-4 text-white">📁 File Manager</h2>
       
-      {/* Container Info & Current Path */}
+      {/* Server Info & Current Path */}
       <div className="mb-4 p-3 bg-dark-secondary rounded-lg border border-dark">
         {selectedContainer && (
           <div className="mb-2">
-            <strong className="text-white">Container:</strong> 
+            <strong className="text-white">Server:</strong> 
             <span className="ml-2 text-green-400">{selectedContainer.Names?.[0]?.replace('/', '') || 'Unknown'}</span>
             <span className="ml-2 text-gray-400">({selectedContainer.State})</span>
           </div>

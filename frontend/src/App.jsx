@@ -8,11 +8,14 @@ import ContainerSelector from './ContainerSelector.jsx'
 export default function App() {
   const [containers, setContainers] = useState([])
   const [loading, setLoading] = useState(false)
-  const [activeTab, setActiveTab] = useState('files')
+  const [activeTab, setActiveTab] = useState(() => {
+    // Restore saved active tab or default to 'files'
+    return localStorage.getItem('activeTab') || 'files';
+  })
   const [selectedContainer, setSelectedContainer] = useState(null)
   const [showContainerSelector, setShowContainerSelector] = useState(true)
   
-  // Listen for container selection event
+  // Listen for server selection event
   useEffect(() => {
     const handleContainerSelected = (event) => {
       setSelectedContainer(event.detail);
@@ -23,18 +26,48 @@ export default function App() {
     return () => window.removeEventListener('containerSelected', handleContainerSelected);
   }, []);
 
-  // Check if container is selected on mount
+  // Validate and restore saved container on mount
   useEffect(() => {
-    const savedContainer = localStorage.getItem('selectedContainer');
-    if (savedContainer) {
-      try {
-        const container = JSON.parse(savedContainer);
-        setSelectedContainer(container);
-        setShowContainerSelector(false);
-      } catch (error) {
-        console.error('Failed to parse saved container:', error);
+    const validateSavedContainer = async () => {
+      const savedContainer = localStorage.getItem('selectedContainer');
+      if (savedContainer) {
+        try {
+          const container = JSON.parse(savedContainer);
+          
+          // Fetch current containers to validate saved container
+          try {
+            const res = await api.get('/containers');
+            const currentContainers = res.data;
+            
+            // Find the saved container in current containers
+            const validContainer = currentContainers.find(c => c.Id === container.Id);
+            
+            if (validContainer) {
+              // Update with current container data (status might have changed)
+              setSelectedContainer(validContainer);
+              setShowContainerSelector(false);
+              localStorage.setItem('selectedContainer', JSON.stringify(validContainer));
+            } else {
+              // Container no longer exists, clear saved data
+              console.warn('Saved container no longer exists, clearing selection');
+              localStorage.removeItem('selectedContainer');
+              setSelectedContainer(null);
+              setShowContainerSelector(true);
+            }
+          } catch (apiError) {
+            console.error('Failed to validate saved container:', apiError);
+            // If API fails, still use saved container but show warning
+            setSelectedContainer(container);
+            setShowContainerSelector(false);
+          }
+        } catch (parseError) {
+          console.error('Failed to parse saved container:', parseError);
+          localStorage.removeItem('selectedContainer');
+        }
       }
-    }
+    };
+
+    validateSavedContainer();
   }, []);
 
   // Save selected container to localStorage
@@ -43,6 +76,45 @@ export default function App() {
       localStorage.setItem('selectedContainer', JSON.stringify(selectedContainer));
     }
   }, [selectedContainer]);
+
+  // Save active tab to localStorage
+  useEffect(() => {
+    localStorage.setItem('activeTab', activeTab);
+  }, [activeTab]);
+
+  // Periodically refresh selected container data
+  useEffect(() => {
+    if (selectedContainer && !showContainerSelector) {
+      const refreshContainer = async () => {
+        try {
+          const res = await api.get('/containers');
+          const currentContainers = res.data;
+          const updatedContainer = currentContainers.find(c => c.Id === selectedContainer.Id);
+          
+          if (updatedContainer) {
+            // Only update if there are changes to avoid unnecessary re-renders
+            if (JSON.stringify(updatedContainer) !== JSON.stringify(selectedContainer)) {
+              setSelectedContainer(updatedContainer);
+            }
+          } else {
+            // Container was deleted, show selector
+            console.warn('Selected container was deleted, showing container selector');
+            setSelectedContainer(null);
+            setShowContainerSelector(true);
+            localStorage.removeItem('selectedContainer');
+          }
+        } catch (error) {
+          console.error('Failed to refresh container data:', error);
+        }
+      };
+
+      // Refresh immediately and then every 30 seconds
+      refreshContainer();
+      const interval = setInterval(refreshContainer, 30000);
+      
+      return () => clearInterval(interval);
+    }
+  }, [selectedContainer, showContainerSelector]);
   
   const fetchContainers = async () => { 
     setLoading(true); 
@@ -102,7 +174,7 @@ export default function App() {
         return (
           <div className="bg-dark-secondary rounded-lg shadow-dark p-6">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold text-white">Docker Containers</h2>
+              <h2 className="text-xl font-semibold text-white">Docker Servers</h2>
               <button 
                 onClick={fetchContainers}
                 className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
@@ -112,9 +184,9 @@ export default function App() {
             </div>
             
             {loading ? (
-              <p className="text-gray-300">Loading containers...</p>
+              <p className="text-gray-300">Loading servers...</p>
             ) : containers.length === 0 ? (
-              <p className="text-gray-400">No containers found</p>
+              <p className="text-gray-400">No servers found</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full table-auto">
@@ -190,7 +262,7 @@ export default function App() {
                 <p className="text-gray-300 mt-1">Container Management & Development Environment</p>
               </div>
               <div className="text-right">
-                <div className="text-sm text-gray-300 mb-1">Current Container:</div>
+                <div className="text-sm text-gray-300 mb-1">Current Server:</div>
                 <div className="flex items-center space-x-2">
                   <span className="font-medium text-white">
                     {selectedContainer.Names?.[0]?.replace('/', '') || 'Unnamed'}
@@ -206,7 +278,7 @@ export default function App() {
                     onClick={handleChangeContainer}
                     className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
                   >
-                    Change Container
+                    Change Server
                   </button>
                 </div>
                 <div className="text-xs text-dark-muted mt-1">
@@ -223,7 +295,7 @@ export default function App() {
                 { id: 'files', name: 'File Manager', icon: '📁' },
                 { id: 'console', name: 'Console', icon: '💻' },
                 { id: 'docker-images', name: 'Docker Images', icon: '🐳' },
-                { id: 'containers', name: 'All Containers', icon: '📋' }
+                { id: 'containers', name: 'All Servers', icon: '📋' }
               ].map((tab) => (
                 <button
                   key={tab.id}
