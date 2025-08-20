@@ -539,9 +539,61 @@ app.post("/api/containers/:id/stop", requireAuth, async (req, res) => {
 
 // ===== FILE MANAGER ENDPOINTS =====
 
+// Helper function to validate and restrict paths to container folder
+function validateContainerPath(requestedPath, containerName) {
+  if (!containerName) {
+    // If no container specified, use default folder
+    const defaultPath = '/tmp/pterolite-files';
+    if (!requestedPath || requestedPath === '/tmp/pterolite-files') {
+      return { isValid: true, safePath: defaultPath };
+    }
+    
+    // Check if requested path is within default folder
+    const resolvedPath = path.resolve(requestedPath);
+    const resolvedDefault = path.resolve(defaultPath);
+    
+    if (resolvedPath.startsWith(resolvedDefault)) {
+      return { isValid: true, safePath: resolvedPath };
+    }
+    
+    return { isValid: false, error: "Access denied: Path outside allowed directory" };
+  }
+  
+  // Container-specific path validation
+  const containerFolder = `/tmp/pterolite-containers/${containerName}`;
+  const resolvedContainerFolder = path.resolve(containerFolder);
+  
+  if (!requestedPath) {
+    return { isValid: true, safePath: containerFolder };
+  }
+  
+  // Resolve the requested path
+  const resolvedPath = path.resolve(requestedPath);
+  
+  // Check if the resolved path is within the container folder
+  if (resolvedPath.startsWith(resolvedContainerFolder)) {
+    return { isValid: true, safePath: resolvedPath };
+  }
+  
+  // Path is outside container folder - deny access
+  return { 
+    isValid: false, 
+    error: `Access denied: Path '${requestedPath}' is outside container folder '${containerFolder}'` 
+  };
+}
+
 // List files in directory
 app.get("/files", webPanelAuth, (req, res) => {
-  const dirPath = req.query.path || '/tmp/pterolite-files';
+  const requestedPath = req.query.path;
+  const containerName = req.query.container;
+  
+  // Validate and get safe path
+  const pathValidation = validateContainerPath(requestedPath, containerName);
+  if (!pathValidation.isValid) {
+    return res.status(403).json({ error: pathValidation.error });
+  }
+  
+  const dirPath = pathValidation.safePath;
   
   // Create directory if it doesn't exist
   if (!fs.existsSync(dirPath)) {
@@ -560,7 +612,16 @@ app.get("/files", webPanelAuth, (req, res) => {
         modified: stats.mtime
       };
     });
-    res.json({ files, currentPath: dirPath });
+    
+    // Add container info to response
+    const response = { 
+      files, 
+      currentPath: dirPath,
+      containerName: containerName || null,
+      containerFolder: containerName ? `/tmp/pterolite-containers/${containerName}` : '/tmp/pterolite-files'
+    };
+    
+    res.json(response);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -568,14 +629,22 @@ app.get("/files", webPanelAuth, (req, res) => {
 
 // Read file content
 app.get("/files/content", webPanelAuth, (req, res) => {
-  const filePath = req.query.path;
-  if (!filePath) {
+  const requestedPath = req.query.path;
+  const containerName = req.query.container;
+  
+  if (!requestedPath) {
     return res.status(400).json({ error: "Path parameter required" });
   }
   
+  // Validate path
+  const pathValidation = validateContainerPath(requestedPath, containerName);
+  if (!pathValidation.isValid) {
+    return res.status(403).json({ error: pathValidation.error });
+  }
+  
   try {
-    const content = fs.readFileSync(filePath, 'utf8');
-    res.json({ content, path: filePath });
+    const content = fs.readFileSync(pathValidation.safePath, 'utf8');
+    res.json({ content, path: pathValidation.safePath });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -583,10 +652,19 @@ app.get("/files/content", webPanelAuth, (req, res) => {
 
 // Save file content
 app.post("/files/save", webPanelAuth, (req, res) => {
-  const { path: filePath, content } = req.body;
-  if (!filePath || content === undefined) {
+  const { path: requestedPath, content, container: containerName } = req.body;
+  
+  if (!requestedPath || content === undefined) {
     return res.status(400).json({ error: "Path and content required" });
   }
+  
+  // Validate path
+  const pathValidation = validateContainerPath(requestedPath, containerName);
+  if (!pathValidation.isValid) {
+    return res.status(403).json({ error: pathValidation.error });
+  }
+  
+  const filePath = pathValidation.safePath;
   
   try {
     // Create directory if it doesn't exist
@@ -596,7 +674,7 @@ app.post("/files/save", webPanelAuth, (req, res) => {
     }
     
     fs.writeFileSync(filePath, content, 'utf8');
-    res.json({ success: true, message: "File saved successfully" });
+    res.json({ success: true, message: "File saved successfully", path: filePath });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -608,8 +686,31 @@ app.post("/files/upload", webPanelAuth, upload.single('file'), (req, res) => {
     return res.status(400).json({ error: "No file uploaded" });
   }
   
-  const targetPath = req.body.targetPath || '/tmp/pterolite-files';
+  const requestedPath = req.body.targetPath;
+  const containerName = req.body.container;
+  
+  // Validate target path
+  const pathValidation = validateContainerPath(requestedPath, containerName);
+  if (!pathValidation.isValid) {
+    // Clean up uploaded file
+    try {
+      fs.unlinkSync(req.file.path);
+    } catch (e) {}
+    return res.status(403).json({ error: pathValidation.error });
+  }
+  
+  const targetPath = pathValidation.safePath;
   const finalPath = path.join(targetPath, req.file.originalname);
+  
+  // Validate final path as well
+  const finalPathValidation = validateContainerPath(finalPath, containerName);
+  if (!finalPathValidation.isValid) {
+    // Clean up uploaded file
+    try {
+      fs.unlinkSync(req.file.path);
+    } catch (e) {}
+    return res.status(403).json({ error: finalPathValidation.error });
+  }
   
   try {
     // Create target directory if it doesn't exist
@@ -618,25 +719,45 @@ app.post("/files/upload", webPanelAuth, upload.single('file'), (req, res) => {
     }
     
     // Move file to target location
-    fs.renameSync(req.file.path, finalPath);
+    fs.renameSync(req.file.path, finalPathValidation.safePath);
     
     res.json({ 
       success: true, 
       message: "File uploaded successfully",
-      path: finalPath,
+      path: finalPathValidation.safePath,
       filename: req.file.originalname
     });
   } catch (error) {
+    // Clean up uploaded file on error
+    try {
+      fs.unlinkSync(req.file.path);
+    } catch (e) {}
     res.status(500).json({ error: error.message });
   }
 });
 
 // Extract ZIP file
 app.post("/files/extract", webPanelAuth, (req, res) => {
-  const { zipPath, extractPath } = req.body;
-  if (!zipPath || !extractPath) {
+  const { zipPath: requestedZipPath, extractPath: requestedExtractPath, container: containerName } = req.body;
+  
+  if (!requestedZipPath || !requestedExtractPath) {
     return res.status(400).json({ error: "ZIP path and extract path required" });
   }
+  
+  // Validate both paths
+  const zipPathValidation = validateContainerPath(requestedZipPath, containerName);
+  const extractPathValidation = validateContainerPath(requestedExtractPath, containerName);
+  
+  if (!zipPathValidation.isValid) {
+    return res.status(403).json({ error: `ZIP file: ${zipPathValidation.error}` });
+  }
+  
+  if (!extractPathValidation.isValid) {
+    return res.status(403).json({ error: `Extract path: ${extractPathValidation.error}` });
+  }
+  
+  const zipPath = zipPathValidation.safePath;
+  const extractPath = extractPathValidation.safePath;
   
   try {
     // Create extract directory if it doesn't exist
@@ -659,10 +780,20 @@ app.post("/files/extract", webPanelAuth, (req, res) => {
 
 // Delete file/directory
 app.delete("/files", webPanelAuth, (req, res) => {
-  const filePath = req.query.path;
-  if (!filePath) {
+  const requestedPath = req.query.path;
+  const containerName = req.query.container;
+  
+  if (!requestedPath) {
     return res.status(400).json({ error: "Path parameter required" });
   }
+  
+  // Validate path
+  const pathValidation = validateContainerPath(requestedPath, containerName);
+  if (!pathValidation.isValid) {
+    return res.status(403).json({ error: pathValidation.error });
+  }
+  
+  const filePath = pathValidation.safePath;
   
   try {
     if (fs.existsSync(filePath)) {
@@ -676,6 +807,45 @@ app.delete("/files", webPanelAuth, (req, res) => {
     } else {
       res.status(404).json({ error: "File not found" });
     }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create new directory
+app.post("/files/mkdir", webPanelAuth, (req, res) => {
+  const { path: requestedPath, name, container: containerName } = req.body;
+  
+  if (!name) {
+    return res.status(400).json({ error: "Directory name required" });
+  }
+  
+  // Validate parent path
+  const pathValidation = validateContainerPath(requestedPath, containerName);
+  if (!pathValidation.isValid) {
+    return res.status(403).json({ error: pathValidation.error });
+  }
+  
+  const parentPath = pathValidation.safePath;
+  const newDirPath = path.join(parentPath, name);
+  
+  // Validate new directory path
+  const newDirValidation = validateContainerPath(newDirPath, containerName);
+  if (!newDirValidation.isValid) {
+    return res.status(403).json({ error: newDirValidation.error });
+  }
+  
+  try {
+    if (fs.existsSync(newDirValidation.safePath)) {
+      return res.status(400).json({ error: "Directory already exists" });
+    }
+    
+    fs.mkdirSync(newDirValidation.safePath, { recursive: true });
+    res.json({ 
+      success: true, 
+      message: "Directory created successfully",
+      path: newDirValidation.safePath
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

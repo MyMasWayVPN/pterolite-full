@@ -47,6 +47,23 @@ const Console = ({ selectedContainer, containerFolder }) => {
     }
   }, [containerFolder]);
 
+  // Get container name from selected container
+  const getContainerName = () => {
+    if (selectedContainer && selectedContainer.Names && selectedContainer.Names[0]) {
+      return selectedContainer.Names[0].replace('/', '')
+    }
+    return null
+  }
+
+  // Get container working directory
+  const getContainerWorkingDir = () => {
+    const containerName = getContainerName()
+    if (containerName) {
+      return `/tmp/pterolite-containers/${containerName}`
+    }
+    return '/tmp/pterolite-files'
+  }
+
   // Save output to localStorage whenever it changes
   useEffect(() => {
     if (selectedContainer && output.length > 0) {
@@ -83,8 +100,10 @@ const Console = ({ selectedContainer, containerFolder }) => {
     if (!command.trim()) return;
 
     setIsLoading(true);
+    const containerWorkingDir = getContainerWorkingDir();
+    
     try {
-      const result = await executeCommand(command, workingDir);
+      const result = await executeCommand(command, containerWorkingDir);
       const newOutput = {
         id: Date.now(),
         type: 'command',
@@ -93,7 +112,8 @@ const Console = ({ selectedContainer, containerFolder }) => {
         stdout: result.stdout,
         stderr: result.stderr,
         error: result.error,
-        exitCode: result.exitCode
+        exitCode: result.exitCode,
+        workingDir: containerWorkingDir
       };
       setOutput(prev => [...prev, newOutput]);
       setCommand('');
@@ -128,14 +148,17 @@ const Console = ({ selectedContainer, containerFolder }) => {
     }
 
     setIsLoading(true);
+    const containerWorkingDir = getContainerWorkingDir();
+    
     try {
-      const result = await runCommand(command, workingDir, processName || `Command: ${command.substring(0, 30)}`, selectedContainer?.Id);
+      const result = await runCommand(command, containerWorkingDir, processName || `Command: ${command.substring(0, 30)}`, selectedContainer?.Id);
       if (result.success) {
         const newOutput = {
           id: Date.now(),
           type: 'success',
           timestamp: new Date().toLocaleTimeString(),
-          message: `Started persistent process: ${result.processId}`
+          message: `Started persistent process: ${result.processId}`,
+          workingDir: containerWorkingDir
         };
         setOutput(prev => [...prev, newOutput]);
         setCommand('');
@@ -227,15 +250,37 @@ const Console = ({ selectedContainer, containerFolder }) => {
             <h3 className="text-lg font-semibold mb-4 text-white">Command Execution</h3>
             
             <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Working Directory</label>
-                <input
-                  type="text"
-                  value={workingDir}
-                  onChange={(e) => setWorkingDir(e.target.value)}
-                  className="w-full px-3 py-2 bg-dark-tertiary border border-dark text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="/tmp/pterolite-files"
-                />
+              {/* Container Info & Working Directory Display */}
+              <div className="p-3 bg-dark-tertiary rounded-lg border border-dark">
+                {selectedContainer ? (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <strong className="text-white">Container:</strong> 
+                        <span className="ml-2 text-green-400">{selectedContainer.Names?.[0]?.replace('/', '') || 'Unknown'}</span>
+                        <span className="ml-2 text-gray-400">({selectedContainer.State})</span>
+                      </div>
+                    </div>
+                    <div>
+                      <strong className="text-white">Working Directory:</strong> 
+                      <code className="ml-2 text-blue-400 bg-dark px-2 py-1 rounded">{getContainerWorkingDir()}</code>
+                    </div>
+                    <div className="mt-2 text-sm text-yellow-400">
+                      🔒 Commands will execute in container folder only
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="text-yellow-400 mb-2">⚠️ No container selected</div>
+                    <div>
+                      <strong className="text-white">Working Directory:</strong> 
+                      <code className="ml-2 text-blue-400 bg-dark px-2 py-1 rounded">/tmp/pterolite-files</code>
+                    </div>
+                    <div className="mt-2 text-sm text-gray-400">
+                      Select a container to restrict command execution to container folder
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -270,7 +315,7 @@ const Console = ({ selectedContainer, containerFolder }) => {
                   disabled={isLoading || !command.trim()}
                   className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isLoading ? 'Executing...' : 'Execute Once'}
+                  {isLoading ? 'Menjalankan...' : 'Jalankan Perintah'}
                 </button>
                 <div className="relative">
                   <button
@@ -283,8 +328,8 @@ const Console = ({ selectedContainer, containerFolder }) => {
                     }
                   >
                     {Object.values(processes).some(p => p.status === 'running') ? 
-                      '🚫 Process Running' : 
-                      'Run Persistent'
+                      '🚫 Proses Berjalan' : 
+                      'Jalankan Di Belakang'
                     }
                   </button>
                   {Object.values(processes).some(p => p.status === 'running') && (
@@ -400,12 +445,17 @@ const Console = ({ selectedContainer, containerFolder }) => {
                   {/* Command Output */}
                   {output.map((item) => (
                     <div key={`cmd-${item.id}`} className="mb-4 border-l-2 border-blue-600 pl-3">
-                      <div className="text-blue-400 mb-1 flex items-center">
+                      <div className="text-blue-400 mb-1 flex items-center flex-wrap">
                         <span className="text-yellow-400 mr-2">$</span>
                         <span>[{item.timestamp}] {item.type === 'command' ? item.command : item.type}</span>
                         <span className="ml-2 bg-blue-800 text-blue-200 px-2 py-1 rounded text-xs">
                           COMMAND
                         </span>
+                        {item.workingDir && (
+                          <span className="ml-2 bg-gray-700 text-gray-300 px-2 py-1 rounded text-xs">
+                            📁 {item.workingDir}
+                          </span>
+                        )}
                       </div>
                       {item.stdout && (
                         <div className="text-green-400 whitespace-pre-wrap mb-1">{item.stdout}</div>

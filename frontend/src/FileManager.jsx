@@ -9,16 +9,38 @@ export default function FileManager({ selectedContainer, containerFolder }) {
   const [fileContent, setFileContent] = useState('')
   const [showEditor, setShowEditor] = useState(false)
   const [uploadFile, setUploadFile] = useState(null)
+  const [containerName, setContainerName] = useState(null)
+  const [containerBaseFolder, setContainerBaseFolder] = useState('/tmp/pterolite-files')
+
+  // Get container name from selected container
+  const getContainerName = () => {
+    if (selectedContainer && selectedContainer.Names && selectedContainer.Names[0]) {
+      return selectedContainer.Names[0].replace('/', '')
+    }
+    return null
+  }
 
   const fetchFiles = async (path = currentPath) => {
     setLoading(true)
     try {
-      const response = await api.get(`/files?path=${encodeURIComponent(path)}`)
+      const containerName = getContainerName()
+      let url = `/files?path=${encodeURIComponent(path)}`
+      if (containerName) {
+        url += `&container=${encodeURIComponent(containerName)}`
+      }
+      
+      const response = await api.get(url)
       setFiles(response.data.files)
       setCurrentPath(response.data.currentPath)
+      setContainerName(response.data.containerName)
+      setContainerBaseFolder(response.data.containerFolder)
     } catch (error) {
       console.error('Error fetching files:', error)
-      alert('Error loading files: ' + error.message)
+      if (error.response && error.response.status === 403) {
+        alert('Access denied: ' + error.response.data.error)
+      } else {
+        alert('Error loading files: ' + error.message)
+      }
     } finally {
       setLoading(false)
     }
@@ -31,13 +53,23 @@ export default function FileManager({ selectedContainer, containerFolder }) {
     }
 
     try {
-      const response = await api.get(`/files/content?path=${encodeURIComponent(file.path)}`)
+      const containerName = getContainerName()
+      let url = `/files/content?path=${encodeURIComponent(file.path)}`
+      if (containerName) {
+        url += `&container=${encodeURIComponent(containerName)}`
+      }
+      
+      const response = await api.get(url)
       setFileContent(response.data.content)
       setSelectedFile(file)
       setShowEditor(true)
     } catch (error) {
       console.error('Error opening file:', error)
-      alert('Error opening file: ' + error.message)
+      if (error.response && error.response.status === 403) {
+        alert('Access denied: ' + error.response.data.error)
+      } else {
+        alert('Error opening file: ' + error.message)
+      }
     }
   }
 
@@ -45,15 +77,21 @@ export default function FileManager({ selectedContainer, containerFolder }) {
     if (!selectedFile) return
 
     try {
+      const containerName = getContainerName()
       await api.post('/files/save', {
         path: selectedFile.path,
-        content: fileContent
+        content: fileContent,
+        container: containerName
       })
       alert('File saved successfully!')
       fetchFiles()
     } catch (error) {
       console.error('Error saving file:', error)
-      alert('Error saving file: ' + error.message)
+      if (error.response && error.response.status === 403) {
+        alert('Access denied: ' + error.response.data.error)
+      } else {
+        alert('Error saving file: ' + error.message)
+      }
     }
   }
 
@@ -61,12 +99,22 @@ export default function FileManager({ selectedContainer, containerFolder }) {
     if (!confirm(`Are you sure you want to delete ${file.name}?`)) return
 
     try {
-      await api.delete(`/files?path=${encodeURIComponent(file.path)}`)
+      const containerName = getContainerName()
+      let url = `/files?path=${encodeURIComponent(file.path)}`
+      if (containerName) {
+        url += `&container=${encodeURIComponent(containerName)}`
+      }
+      
+      await api.delete(url)
       alert('File deleted successfully!')
       fetchFiles()
     } catch (error) {
       console.error('Error deleting file:', error)
-      alert('Error deleting file: ' + error.message)
+      if (error.response && error.response.status === 403) {
+        alert('Access denied: ' + error.response.data.error)
+      } else {
+        alert('Error deleting file: ' + error.message)
+      }
     }
   }
 
@@ -77,6 +125,11 @@ export default function FileManager({ selectedContainer, containerFolder }) {
     const formData = new FormData()
     formData.append('file', uploadFile)
     formData.append('targetPath', currentPath)
+    
+    const containerName = getContainerName()
+    if (containerName) {
+      formData.append('container', containerName)
+    }
 
     try {
       const response = await api.post('/files/upload', formData, {
@@ -93,7 +146,8 @@ export default function FileManager({ selectedContainer, containerFolder }) {
         if (confirm('Do you want to extract this ZIP file?')) {
           await api.post('/files/extract', {
             zipPath: response.data.path,
-            extractPath: currentPath
+            extractPath: currentPath,
+            container: containerName
           })
           alert('ZIP file extracted successfully!')
           fetchFiles()
@@ -101,12 +155,52 @@ export default function FileManager({ selectedContainer, containerFolder }) {
       }
     } catch (error) {
       console.error('Error uploading file:', error)
-      alert('Error uploading file: ' + error.message)
+      if (error.response && error.response.status === 403) {
+        alert('Access denied: ' + error.response.data.error)
+      } else {
+        alert('Error uploading file: ' + error.message)
+      }
+    }
+  }
+
+  const createFolder = async () => {
+    const folderName = prompt('Enter folder name:')
+    if (!folderName) return
+
+    try {
+      const containerName = getContainerName()
+      await api.post('/files/mkdir', {
+        path: currentPath,
+        name: folderName,
+        container: containerName
+      })
+      alert('Folder created successfully!')
+      fetchFiles()
+    } catch (error) {
+      console.error('Error creating folder:', error)
+      if (error.response && error.response.status === 403) {
+        alert('Access denied: ' + error.response.data.error)
+      } else {
+        alert('Error creating folder: ' + error.message)
+      }
     }
   }
 
   const goUp = () => {
+    // Prevent going above container base folder
+    if (currentPath === containerBaseFolder) {
+      alert('You cannot go above the container folder')
+      return
+    }
+    
     const parentPath = currentPath.split('/').slice(0, -1).join('/') || '/'
+    
+    // Double check that parent path is still within container folder
+    if (containerBaseFolder && !parentPath.startsWith(containerBaseFolder)) {
+      alert('Access denied: Cannot go outside container folder')
+      return
+    }
+    
     fetchFiles(parentPath)
   }
 
@@ -134,17 +228,41 @@ export default function FileManager({ selectedContainer, containerFolder }) {
     <div className="p-4">
       <h2 className="text-2xl font-bold mb-4 text-white">📁 File Manager</h2>
       
-      {/* Current Path */}
+      {/* Container Info & Current Path */}
       <div className="mb-4 p-3 bg-dark-secondary rounded-lg border border-dark">
-        <strong className="text-white">Current Path:</strong> 
-        <code className="ml-2 text-blue-400 bg-dark-tertiary px-2 py-1 rounded">{currentPath}</code>
-        {currentPath !== '/' && (
-          <button 
-            onClick={goUp}
-            className="ml-4 px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors"
-          >
-            ⬆️ Go Up
-          </button>
+        {selectedContainer && (
+          <div className="mb-2">
+            <strong className="text-white">Container:</strong> 
+            <span className="ml-2 text-green-400">{selectedContainer.Names?.[0]?.replace('/', '') || 'Unknown'}</span>
+            <span className="ml-2 text-gray-400">({selectedContainer.State})</span>
+          </div>
+        )}
+        <div className="flex items-center justify-between">
+          <div>
+            <strong className="text-white">Current Path:</strong> 
+            <code className="ml-2 text-blue-400 bg-dark-tertiary px-2 py-1 rounded">{currentPath}</code>
+          </div>
+          <div className="flex space-x-2">
+            {currentPath !== containerBaseFolder && (
+              <button 
+                onClick={goUp}
+                className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 transition-colors"
+              >
+                ⬆️ Go Up
+              </button>
+            )}
+            <button 
+              onClick={createFolder}
+              className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700 transition-colors"
+            >
+              📁 New Folder
+            </button>
+          </div>
+        </div>
+        {containerBaseFolder !== '/tmp/pterolite-files' && (
+          <div className="mt-2 text-sm text-yellow-400">
+            🔒 Access restricted to: <code className="bg-dark-tertiary px-1 rounded">{containerBaseFolder}</code>
+          </div>
         )}
       </div>
 
