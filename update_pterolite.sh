@@ -319,6 +319,39 @@ check_ssl_status() {
     fi
 }
 
+# Update nginx tunnel configuration
+update_nginx_tunnel_config() {
+    log_step "Adding Cloudflare Tunnel endpoints to nginx configuration..."
+    
+    # Check if tunnel endpoint already exists
+    if grep -q "location /tunnels" /etc/nginx/sites-available/pterolite.conf; then
+        log_info "Tunnel endpoint already exists in nginx configuration"
+        return 0
+    fi
+    
+    # Backup existing configuration
+    cp /etc/nginx/sites-available/pterolite.conf /etc/nginx/sites-available/pterolite.conf.backup.tunnel.$(date +%Y%m%d_%H%M%S)
+    
+    # Add tunnel endpoint before the external-api location block
+    sed -i '/# API eksternal dengan authentication/i \
+    # Cloudflare Tunnel management endpoints\
+    location /tunnels {\
+        proxy_pass http://127.0.0.1:8088/tunnels;\
+        proxy_http_version 1.1;\
+        proxy_set_header Upgrade $http_upgrade;\
+        proxy_set_header Connection '\''upgrade'\'';\
+        proxy_set_header Host $host;\
+        proxy_set_header X-Real-IP $remote_addr;\
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\
+        proxy_set_header X-Forwarded-Proto $scheme;\
+        proxy_cache_bypass $http_upgrade;\
+    }\
+\
+' /etc/nginx/sites-available/pterolite.conf
+
+    log_info "Tunnel endpoint added to nginx configuration"
+}
+
 # Update nginx configuration
 update_nginx_config() {
     log_step "Updating nginx configuration..."
