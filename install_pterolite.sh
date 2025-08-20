@@ -279,32 +279,31 @@ setup_ssl_interactive() {
             1)
                 log_info "Setting up Let's Encrypt SSL certificate..."
                 
-                # Get email for Let's Encrypt
-                while true; do
-                    read -p "Enter email address for Let's Encrypt notifications: " ssl_email
-                    if [[ "$ssl_email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
-                        break
-                    else
-                        log_error "Invalid email format. Please enter a valid email address."
-                    fi
-                done
+                # Use admin email for Let's Encrypt if not provided
+                ssl_email="$ADMIN_EMAIL"
                 
-                # Attempt SSL certificate installation
+                # Attempt SSL certificate installation without redirect
                 log_info "Installing SSL certificate for $DOMAIN..."
-                if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --email "$ssl_email"; then
+                if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --email "$ssl_email" --no-redirect; then
                     log_info "SSL certificate installed successfully!"
-                    log_info "Your site is now available at: https://$DOMAIN"
+                    log_info "Your site is available at both:"
+                    log_info "  - http://$DOMAIN (HTTP)"
+                    log_info "  - https://$DOMAIN (HTTPS)"
+                    log_info "No automatic redirect to HTTPS is configured."
+                    SSL_ENABLED=true
                 else
                     log_warn "SSL certificate installation failed."
                     log_warn "Your site is available at: http://$DOMAIN"
                     log_warn "You can try installing SSL manually later with:"
-                    log_warn "certbot --nginx -d $DOMAIN"
+                    log_warn "certbot --nginx -d $DOMAIN --no-redirect"
+                    SSL_ENABLED=false
                 fi
                 break
                 ;;
             2)
                 log_warn "Skipping SSL setup. Your site will be available at: http://$DOMAIN"
                 log_warn "This is not recommended for production use."
+                SSL_ENABLED=false
                 break
                 ;;
             *)
@@ -330,9 +329,9 @@ setup_backend() {
     log_info "Installing backend dependencies..."
     npm install
     
-    # Install additional dependencies for new features
+    # Install additional dependencies for authentication and new features
     log_info "Installing additional backend dependencies..."
-    npm install multer archiver unzipper uuid
+    npm install bcrypt jsonwebtoken multer archiver unzipper uuid
     
     # Generate API key and JWT secret
     API_KEY=$(generate_api_key)
@@ -479,7 +478,7 @@ start_services() {
 configure_nginx() {
     log_step "Configuring Nginx..."
     
-    # Create nginx configuration
+    # Create nginx configuration without HTTPS redirect
     cat > /etc/nginx/sites-available/pterolite.conf <<EOF
 server {
     listen 80;
@@ -492,9 +491,101 @@ server {
         try_files \$uri \$uri/ /index.html;
     }
 
-    # API proxy untuk web panel (tanpa auth requirement)
-    location /api/ {
-        proxy_pass http://127.0.0.1:8088/;
+    # Authentication endpoints
+    location /auth/ {
+        proxy_pass http://127.0.0.1:8088/auth/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Container management endpoints
+    location /containers {
+        proxy_pass http://127.0.0.1:8088/containers;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # File management endpoints
+    location /files {
+        proxy_pass http://127.0.0.1:8088/files;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+        client_max_body_size 100M;
+    }
+
+    # Process management endpoints
+    location /processes {
+        proxy_pass http://127.0.0.1:8088/processes;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Console endpoints
+    location /console {
+        proxy_pass http://127.0.0.1:8088/console;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Script execution endpoints
+    location /scripts {
+        proxy_pass http://127.0.0.1:8088/scripts;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Startup commands endpoints
+    location /startup-commands {
+        proxy_pass http://127.0.0.1:8088/startup-commands;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Docker management endpoints
+    location /docker {
+        proxy_pass http://127.0.0.1:8088/docker;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -518,7 +609,7 @@ server {
         proxy_cache_bypass \$http_upgrade;
     }
 
-    # Security headers
+    # Security headers (without HTTPS enforcement)
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-XSS-Protection "1; mode=block" always;
     add_header X-Content-Type-Options "nosniff" always;
@@ -649,24 +740,40 @@ show_summary() {
     echo ""
     log_info "🌐 ACCESS INFORMATION:"
     echo "================================"
-    if [[ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]]; then
-        log_info "Web Panel: https://$DOMAIN (tanpa authentication)"
-        log_info "API Eksternal: https://$DOMAIN/external-api (perlu X-API-Key header)"
+    if [[ "$SSL_ENABLED" == "true" ]]; then
+        log_info "Web Panel HTTP: http://$DOMAIN"
+        log_info "Web Panel HTTPS: https://$DOMAIN"
+        log_info "API Eksternal HTTP: http://$DOMAIN/external-api (perlu X-API-Key header)"
+        log_info "API Eksternal HTTPS: https://$DOMAIN/external-api (perlu X-API-Key header)"
+        log_info "Note: No automatic redirect to HTTPS - both HTTP and HTTPS work"
+        PANEL_URL="http://$DOMAIN"
     else
-        log_info "Web Panel: http://$DOMAIN (tanpa authentication)"
+        log_info "Web Panel: http://$DOMAIN"
         log_info "API Eksternal: http://$DOMAIN/external-api (perlu X-API-Key header)"
+        PANEL_URL="http://$DOMAIN"
     fi
+    
+    echo ""
+    log_info "🔑 LOGIN CREDENTIALS:"
+    echo "================================"
+    log_info "Username: $ADMIN_USERNAME"
+    log_info "Password: [Use the password you entered during installation]"
+    log_info "Role: Administrator"
     
     # Features
     echo ""
     log_info "🚀 AVAILABLE FEATURES:"
     echo "================================"
-    log_info "• 🐳 Container Management - Create, start, stop, delete Docker containers"
+    log_info "• 🔐 User Authentication - JWT-based login system"
+    log_info "• 👥 User Management - Admin can create/manage users"
+    log_info "• 🐳 Server Management - Create, start, stop, delete Docker servers"
     log_info "• 📁 File Manager - Upload, edit, delete files & extract ZIP"
     log_info "• 💻 Console Terminal - Execute server commands"
     log_info "• ⚡ Script Executor - Run JavaScript (Node.js) & Python scripts"
     log_info "• 🔧 Startup Manager - Manage startup commands"
     log_info "• 🐋 Docker Image Manager - Manage Docker images"
+    log_info "• 🔒 Role-based Access Control - Admin vs User permissions"
+    log_info "• 🏠 User Isolation - Users can only see their own servers"
     
     # Management Commands
     echo ""
@@ -682,12 +789,23 @@ show_summary() {
     
     # Security Reminder
     echo ""
-    log_info "🔐 SECURITY REMINDER:"
+    log_info "🔐 SECURITY INFORMATION:"
     echo "================================"
-    log_info "• Web Panel dapat diakses langsung tanpa API key"
+    log_info "• Web Panel requires login with username/password"
+    log_info "• Admin users can create/manage other users"
+    log_info "• Regular users are limited to 1 server each"
+    log_info "• Users can only access their own servers"
     log_info "• API key untuk akses eksternal: $API_KEY"
-    log_info "• API key hanya diperlukan untuk endpoint /external-api/*"
-    log_info "• Gunakan X-API-Key header untuk authentication API eksternal"
+    log_info "• External API requires X-API-Key header: /external-api/*"
+    
+    echo ""
+    log_info "🎯 NEXT STEPS:"
+    echo "================================"
+    log_info "1. Visit $PANEL_URL to access the web panel"
+    log_info "2. Login with admin credentials: $ADMIN_USERNAME"
+    log_info "3. Create additional users if needed (Admin only)"
+    log_info "4. Start creating and managing your Docker servers"
+    log_info "5. Each user can create up to 1 server (regular users)"
     
     # Save installation info
     cat > "$INSTALL_DIR/installation-info.txt" <<EOF
@@ -695,10 +813,17 @@ PteroLite Installation Information
 ================================
 Installation Date: $(date)
 Domain: $DOMAIN
+Panel URL: $PANEL_URL
 API Key: $API_KEY
+JWT Secret: $JWT_SECRET
 Install Directory: $INSTALL_DIR
 Web Root: $WEB_ROOT
 GitHub Repository: $GITHUB_REPO
+
+Admin User:
+- Username: $ADMIN_USERNAME
+- Email: $ADMIN_EMAIL
+- Role: admin
 
 Services:
 - Backend: systemd service (pterolite)
@@ -714,7 +839,9 @@ Commands:
 - Renew SSL: certbot renew
 
 Features:
-- Container Management
+- User Authentication & Management
+- Role-based Access Control
+- Server Management (User Isolation)
 - File Manager
 - Console Terminal
 - Script Executor

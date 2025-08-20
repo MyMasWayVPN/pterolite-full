@@ -290,12 +290,12 @@ setup_ssl_certificate() {
     case $SSL_STATUS in
         "missing")
             log_info "Installing new SSL certificate..."
-            if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --email "admin@$DOMAIN" --redirect; then
-                log_info "SSL certificate installed successfully"
+            if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --email "admin@$DOMAIN" --no-redirect; then
+                log_info "SSL certificate installed successfully (no redirect)"
                 SSL_STATUS="valid"
             else
                 log_warn "Failed to install SSL certificate automatically"
-                log_warn "You can run it manually later: certbot --nginx -d $DOMAIN"
+                log_warn "You can run it manually later: certbot --nginx -d $DOMAIN --no-redirect"
                 return 1
             fi
             ;;
@@ -332,18 +332,149 @@ update_nginx_config() {
     # Check SSL status first
     check_ssl_status
     
-    # Create nginx configuration based on SSL status
+    # Create nginx configuration based on SSL status (without HTTPS redirect)
     if [[ "$SSL_STATUS" == "valid" ]]; then
-        log_info "Creating nginx configuration with SSL support..."
+        log_info "Creating nginx configuration with SSL support (no redirect)..."
         cat > /etc/nginx/sites-available/pterolite.conf <<EOF
-# HTTP to HTTPS redirect
+# HTTP server (no redirect)
 server {
     listen 80;
     server_name $DOMAIN;
-    return 301 https://\$server_name\$request_uri;
+    root $WEB_ROOT;
+    index index.html;
+
+    # Serve static files (React frontend)
+    location / {
+        try_files \$uri \$uri/ /index.html;
+    }
+
+    # Authentication endpoints
+    location /auth/ {
+        proxy_pass http://127.0.0.1:8088/auth/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Container management endpoints
+    location /containers {
+        proxy_pass http://127.0.0.1:8088/containers;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # File management endpoints
+    location /files {
+        proxy_pass http://127.0.0.1:8088/files;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+        client_max_body_size 100M;
+    }
+
+    # Process management endpoints
+    location /processes {
+        proxy_pass http://127.0.0.1:8088/processes;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Console endpoints
+    location /console {
+        proxy_pass http://127.0.0.1:8088/console;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Script execution endpoints
+    location /scripts {
+        proxy_pass http://127.0.0.1:8088/scripts;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Startup commands endpoints
+    location /startup-commands {
+        proxy_pass http://127.0.0.1:8088/startup-commands;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Docker management endpoints
+    location /docker {
+        proxy_pass http://127.0.0.1:8088/docker;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # API eksternal dengan authentication (untuk akses programmatic)
+    location /external-api/ {
+        proxy_pass http://127.0.0.1:8088/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Security headers (without HTTPS enforcement)
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "no-referrer-when-downgrade" always;
+    add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
 }
 
-# HTTPS server
+# HTTPS server (optional, no redirect from HTTP)
 server {
     listen 443 ssl http2;
     server_name $DOMAIN;
@@ -364,9 +495,101 @@ server {
         try_files \$uri \$uri/ /index.html;
     }
 
-    # API proxy untuk web panel (tanpa auth requirement)
-    location /api/ {
-        proxy_pass http://127.0.0.1:8088/;
+    # Authentication endpoints
+    location /auth/ {
+        proxy_pass http://127.0.0.1:8088/auth/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Container management endpoints
+    location /containers {
+        proxy_pass http://127.0.0.1:8088/containers;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # File management endpoints
+    location /files {
+        proxy_pass http://127.0.0.1:8088/files;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+        client_max_body_size 100M;
+    }
+
+    # Process management endpoints
+    location /processes {
+        proxy_pass http://127.0.0.1:8088/processes;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Console endpoints
+    location /console {
+        proxy_pass http://127.0.0.1:8088/console;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Script execution endpoints
+    location /scripts {
+        proxy_pass http://127.0.0.1:8088/scripts;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Startup commands endpoints
+    location /startup-commands {
+        proxy_pass http://127.0.0.1:8088/startup-commands;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Docker management endpoints
+    location /docker {
+        proxy_pass http://127.0.0.1:8088/docker;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -390,13 +613,12 @@ server {
         proxy_cache_bypass \$http_upgrade;
     }
 
-    # Security headers
+    # Security headers (without HTTPS enforcement)
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-XSS-Protection "1; mode=block" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "no-referrer-when-downgrade" always;
     add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 }
 EOF
     else
@@ -413,9 +635,101 @@ server {
         try_files \$uri \$uri/ /index.html;
     }
 
-    # API proxy untuk web panel (tanpa auth requirement)
-    location /api/ {
-        proxy_pass http://127.0.0.1:8088/;
+    # Authentication endpoints
+    location /auth/ {
+        proxy_pass http://127.0.0.1:8088/auth/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Container management endpoints
+    location /containers {
+        proxy_pass http://127.0.0.1:8088/containers;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # File management endpoints
+    location /files {
+        proxy_pass http://127.0.0.1:8088/files;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+        client_max_body_size 100M;
+    }
+
+    # Process management endpoints
+    location /processes {
+        proxy_pass http://127.0.0.1:8088/processes;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Console endpoints
+    location /console {
+        proxy_pass http://127.0.0.1:8088/console;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Script execution endpoints
+    location /scripts {
+        proxy_pass http://127.0.0.1:8088/scripts;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Startup commands endpoints
+    location /startup-commands {
+        proxy_pass http://127.0.0.1:8088/startup-commands;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Docker management endpoints
+    location /docker {
+        proxy_pass http://127.0.0.1:8088/docker;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -439,7 +753,7 @@ server {
         proxy_cache_bypass \$http_upgrade;
     }
 
-    # Security headers
+    # Security headers (without HTTPS enforcement)
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-XSS-Protection "1; mode=block" always;
     add_header X-Content-Type-Options "nosniff" always;
@@ -691,8 +1005,9 @@ show_summary() {
     echo "================================"
     echo "   • Domain: $DOMAIN"
     if [[ "$SSL_STATUS" == "valid" ]]; then
-        echo "   • Access URL: https://$DOMAIN (SSL enabled)"
-        echo "   • HTTP redirects to HTTPS automatically"
+        echo "   • Access URL HTTP: http://$DOMAIN"
+        echo "   • Access URL HTTPS: https://$DOMAIN"
+        echo "   • Note: No automatic redirect to HTTPS - both HTTP and HTTPS work"
     else
         echo "   • Access URL: http://$DOMAIN (HTTP only)"
         echo "   • SSL Status: $SSL_STATUS"
