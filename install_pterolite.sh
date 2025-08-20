@@ -179,6 +179,89 @@ get_domain() {
     done
 }
 
+# Interactive admin user setup
+setup_admin_user() {
+    echo ""
+    log_info "Admin User Configuration"
+    echo "================================"
+    log_info "Create the initial admin user for PteroLite web panel"
+    echo ""
+    
+    # Get admin username
+    while true; do
+        read -p "Enter admin username: " ADMIN_USERNAME
+        
+        if [[ -z "$ADMIN_USERNAME" ]]; then
+            log_error "Username cannot be empty."
+            continue
+        fi
+        
+        if [[ ! "$ADMIN_USERNAME" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+            log_error "Username can only contain letters, numbers, underscores, and hyphens."
+            continue
+        fi
+        
+        if [[ ${#ADMIN_USERNAME} -lt 3 ]]; then
+            log_error "Username must be at least 3 characters long."
+            continue
+        fi
+        
+        log_info "Username '$ADMIN_USERNAME' is valid"
+        break
+    done
+    
+    # Get admin email
+    while true; do
+        read -p "Enter admin email: " ADMIN_EMAIL
+        
+        if [[ -z "$ADMIN_EMAIL" ]]; then
+            log_error "Email cannot be empty."
+            continue
+        fi
+        
+        if [[ ! "$ADMIN_EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
+            log_error "Invalid email format."
+            continue
+        fi
+        
+        log_info "Email '$ADMIN_EMAIL' is valid"
+        break
+    done
+    
+    # Get admin password
+    while true; do
+        read -s -p "Enter admin password (min 6 characters): " ADMIN_PASSWORD
+        echo ""
+        
+        if [[ -z "$ADMIN_PASSWORD" ]]; then
+            log_error "Password cannot be empty."
+            continue
+        fi
+        
+        if [[ ${#ADMIN_PASSWORD} -lt 6 ]]; then
+            log_error "Password must be at least 6 characters long."
+            continue
+        fi
+        
+        read -s -p "Confirm admin password: " ADMIN_PASSWORD_CONFIRM
+        echo ""
+        
+        if [[ "$ADMIN_PASSWORD" != "$ADMIN_PASSWORD_CONFIRM" ]]; then
+            log_error "Passwords do not match. Please try again."
+            continue
+        fi
+        
+        log_info "Password confirmed successfully"
+        break
+    done
+    
+    echo ""
+    log_info "Admin user configuration completed:"
+    log_info "Username: $ADMIN_USERNAME"
+    log_info "Email: $ADMIN_EMAIL"
+    log_info "Password: [HIDDEN]"
+}
+
 # Interactive SSL setup
 setup_ssl_interactive() {
     echo ""
@@ -251,12 +334,14 @@ setup_backend() {
     log_info "Installing additional backend dependencies..."
     npm install multer archiver unzipper uuid
     
-    # Generate API key
+    # Generate API key and JWT secret
     API_KEY=$(generate_api_key)
+    JWT_SECRET=$(generate_api_key)
     
     # Set up environment
     cat > .env <<EOF
 API_KEY=$API_KEY
+JWT_SECRET=$JWT_SECRET
 NODE_ENV=production
 PORT=8088
 EOF
@@ -266,7 +351,63 @@ EOF
         sed -i 's/const API_KEY = process.env.API_KEY || "supersecretkey";/const API_KEY = process.env.API_KEY;/' server.js
     fi
     
+    # Create initial admin user
+    log_info "Creating initial admin user..."
+    create_initial_admin_user
+    
     log_info "Backend setup completed"
+}
+
+# Create initial admin user
+create_initial_admin_user() {
+    # Create a Node.js script to create the admin user
+    cat > create_admin.js <<EOF
+const bcrypt = require('bcrypt');
+const fs = require('fs');
+const { v4: uuidv4 } = require('uuid');
+
+async function createAdminUser() {
+    try {
+        const hashedPassword = await bcrypt.hash('$ADMIN_PASSWORD', 10);
+        
+        const adminUser = {
+            id: uuidv4(),
+            username: '$ADMIN_USERNAME',
+            email: '$ADMIN_EMAIL',
+            password: hashedPassword,
+            role: 'admin',
+            createdAt: new Date(),
+            containers: []
+        };
+        
+        // Save to users file
+        const usersFile = '/tmp/pterolite-users.json';
+        const users = [adminUser];
+        
+        fs.writeFileSync(usersFile, JSON.stringify(users, null, 2));
+        console.log('Admin user created successfully');
+        console.log('Username:', adminUser.username);
+        console.log('Email:', adminUser.email);
+        console.log('Role:', adminUser.role);
+        
+    } catch (error) {
+        console.error('Error creating admin user:', error);
+        process.exit(1);
+    }
+}
+
+createAdminUser();
+EOF
+    
+    # Run the script to create admin user
+    if node create_admin.js; then
+        log_info "Admin user created successfully"
+        rm create_admin.js
+    else
+        log_error "Failed to create admin user"
+        rm create_admin.js
+        exit 1
+    fi
 }
 
 # Setup frontend
@@ -528,10 +669,20 @@ show_summary() {
     echo "================================"
     log_info "Domain: $DOMAIN"
     log_info "API Key: $API_KEY"
+    log_info "JWT Secret: $JWT_SECRET"
     log_info "Backend Port: 8088"
     log_info "Install Directory: $INSTALL_DIR"
     log_info "Web Root: $WEB_ROOT"
     log_info "GitHub Repository: $GITHUB_REPO"
+    
+    # Admin User Details
+    echo ""
+    log_info "👤 ADMIN USER DETAILS:"
+    echo "================================"
+    log_info "Username: $ADMIN_USERNAME"
+    log_info "Email: $ADMIN_EMAIL"
+    log_info "Role: admin"
+    log_info "Password: [Use the password you entered during installation]"
     
     # Access Information
     echo ""
@@ -642,6 +793,9 @@ main() {
     
     # Interactive domain input
     get_domain
+    
+    # Interactive admin user setup
+    setup_admin_user
     
     # System updates
     log_step "Updating system packages..."

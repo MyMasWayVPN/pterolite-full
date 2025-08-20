@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react'
-import { api } from './api.js'
+import { api, getCurrentUser } from './api.js'
 import FileManager from './FileManager.jsx'
 import Console from './Console.jsx'
 import DockerImageManager from './DockerImageManager.jsx'
 import ContainerSelector from './ContainerSelector.jsx'
+import Login from './Login.jsx'
+import UserManagement from './UserManagement.jsx'
 
 export default function App() {
+  const [user, setUser] = useState(null)
+  const [authLoading, setAuthLoading] = useState(true)
   const [containers, setContainers] = useState([])
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState(() => {
@@ -14,6 +18,44 @@ export default function App() {
   })
   const [selectedContainer, setSelectedContainer] = useState(null)
   const [showContainerSelector, setShowContainerSelector] = useState(true)
+
+  // Check authentication on app load
+  useEffect(() => {
+    const checkAuth = async () => {
+      const token = localStorage.getItem('authToken');
+      const savedUser = localStorage.getItem('user');
+      
+      if (token && savedUser) {
+        try {
+          // Verify token is still valid by fetching current user
+          const response = await getCurrentUser();
+          setUser(response.user);
+        } catch (error) {
+          console.error('Token validation failed:', error);
+          // Clear invalid token
+          localStorage.removeItem('authToken');
+          localStorage.removeItem('user');
+          setUser(null);
+        }
+      }
+      setAuthLoading(false);
+    };
+
+    checkAuth();
+  }, []);
+
+  const handleLogin = (userData) => {
+    setUser(userData);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('user');
+    localStorage.removeItem('selectedContainer');
+    setUser(null);
+    setSelectedContainer(null);
+    setShowContainerSelector(true);
+  };
   
   // Listen for server selection event
   useEffect(() => {
@@ -151,7 +193,7 @@ export default function App() {
   };
   
   useEffect(() => {
-    if (activeTab === 'containers') {
+    if (activeTab === 'servers') {
       fetchContainers(); 
       const iv = setInterval(fetchContainers, 5000); 
       return () => clearInterval(iv)
@@ -164,17 +206,18 @@ export default function App() {
       <ContainerSelector 
         onContainerSelect={setSelectedContainer}
         selectedContainer={selectedContainer}
+        currentUser={user}
       />
     );
   }
 
   const renderTabContent = () => {
     switch (activeTab) {
-      case 'containers':
+      case 'servers':
         return (
           <div className="bg-dark-secondary rounded-lg shadow-dark p-6">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold text-white">Docker Servers</h2>
+              <h2 className="text-xl font-semibold text-white">My Servers</h2>
               <button 
                 onClick={fetchContainers}
                 className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
@@ -245,9 +288,28 @@ export default function App() {
         return <Console selectedContainer={selectedContainer} containerFolder={getContainerFolder(selectedContainer)} />
       case 'docker-images':
         return <DockerImageManager selectedContainer={selectedContainer} containerFolder={getContainerFolder(selectedContainer)} />
+      case 'users':
+        return <UserManagement currentUser={user} />
       default:
         return null
     }
+  }
+
+  // Show loading screen while checking authentication
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-dark-primary flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-400 mx-auto mb-4"></div>
+          <p className="text-gray-300">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show login screen if not authenticated
+  if (!user) {
+    return <Login onLogin={handleLogin} />;
   }
 
   return (
@@ -259,30 +321,59 @@ export default function App() {
             <div className="flex justify-between items-center">
               <div>
                 <h1 className="text-3xl font-bold text-white">PteroLite Dashboard</h1>
-                <p className="text-gray-300 mt-1">Container Management & Development Environment</p>
+                <p className="text-gray-300 mt-1">Server Management & Development Environment</p>
               </div>
-              <div className="text-right">
-                <div className="text-sm text-gray-300 mb-1">Current Server:</div>
-                <div className="flex items-center space-x-2">
-                  <span className="font-medium text-white">
-                    {selectedContainer.Names?.[0]?.replace('/', '') || 'Unnamed'}
-                  </span>
-                  <span className={`px-2 py-1 rounded text-xs ${
-                    selectedContainer.State === 'running' 
-                      ? 'bg-green-900 text-green-300 border border-green-700' 
-                      : 'bg-red-900 text-red-300 border border-red-700'
-                  }`}>
-                    {selectedContainer.State}
-                  </span>
-                  <button
-                    onClick={handleChangeContainer}
-                    className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
-                  >
-                    Change Server
-                  </button>
-                </div>
-                <div className="text-xs text-dark-muted mt-1">
-                  Folder: <code className="bg-dark-tertiary px-1 py-0.5 rounded text-dark-primary">{getContainerFolder(selectedContainer)}</code>
+              <div className="flex items-center space-x-6">
+                {/* Current Server Info */}
+                {selectedContainer && (
+                  <div className="text-right">
+                    <div className="text-sm text-gray-300 mb-1">Current Server:</div>
+                    <div className="flex items-center space-x-2">
+                      <span className="font-medium text-white">
+                        {selectedContainer.Names?.[0]?.replace('/', '') || 'Unnamed'}
+                      </span>
+                      <span className={`px-2 py-1 rounded text-xs ${
+                        selectedContainer.State === 'running' 
+                          ? 'bg-green-900 text-green-300 border border-green-700' 
+                          : 'bg-red-900 text-red-300 border border-red-700'
+                      }`}>
+                        {selectedContainer.State}
+                      </span>
+                      <button
+                        onClick={handleChangeContainer}
+                        className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                      >
+                        Change Server
+                      </button>
+                    </div>
+                    <div className="text-xs text-dark-muted mt-1">
+                      Folder: <code className="bg-dark-tertiary px-1 py-0.5 rounded text-dark-primary">{getContainerFolder(selectedContainer)}</code>
+                    </div>
+                  </div>
+                )}
+                
+                {/* User Info */}
+                <div className="text-right border-l border-dark pl-6">
+                  <div className="text-sm text-gray-300 mb-1">Logged in as:</div>
+                  <div className="flex items-center space-x-2">
+                    <span className="font-medium text-white">{user.username}</span>
+                    <span className={`px-2 py-1 rounded text-xs ${
+                      user.role === 'admin' 
+                        ? 'bg-purple-900 text-purple-300 border border-purple-700' 
+                        : 'bg-blue-900 text-blue-300 border border-blue-700'
+                    }`}>
+                      {user.role}
+                    </span>
+                    <button
+                      onClick={handleLogout}
+                      className="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                    >
+                      Logout
+                    </button>
+                  </div>
+                  <div className="text-xs text-dark-muted mt-1">
+                    {user.email}
+                  </div>
                 </div>
               </div>
             </div>
@@ -295,7 +386,8 @@ export default function App() {
                 { id: 'files', name: 'File Manager', icon: '📁' },
                 { id: 'console', name: 'Console', icon: '💻' },
                 { id: 'docker-images', name: 'Docker Images', icon: '🐳' },
-                { id: 'containers', name: 'All Servers', icon: '📋' }
+                { id: 'servers', name: 'My Servers', icon: '📋' },
+                ...(user.role === 'admin' ? [{ id: 'users', name: 'User Management', icon: '👥' }] : [])
               ].map((tab) => (
                 <button
                   key={tab.id}

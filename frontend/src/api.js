@@ -1,16 +1,68 @@
 import axios from 'axios';
 
-const API_BASE_URL = '/api';
+const API_BASE_URL = '';
 
 const api = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'X-API-Key': 'supersecretkey' // Add API key for authentication
-  }
+  baseURL: API_BASE_URL
 });
+
+// Add request interceptor to include JWT token
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('authToken');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Add response interceptor to handle authentication errors
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401 || error.response?.status === 403) {
+      // Token expired or invalid, redirect to login
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('user');
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
 
 // Export the api instance for direct use
 export { api };
+
+// ===== AUTHENTICATION ENDPOINTS =====
+
+export const login = async (username, password) => {
+  const response = await api.post('/auth/login', { username, password });
+  return response.data;
+};
+
+export const getCurrentUser = async () => {
+  const response = await api.get('/auth/me');
+  return response.data;
+};
+
+export const createUser = async (userData) => {
+  const response = await api.post('/auth/users', userData);
+  return response.data;
+};
+
+export const getUsers = async () => {
+  const response = await api.get('/auth/users');
+  return response.data;
+};
+
+export const deleteUser = async (username) => {
+  const response = await api.delete(`/auth/users/${username}`);
+  return response.data;
+};
 
 // Container management
 export const getContainers = async () => {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getContainers, startContainer, stopContainer, deleteContainer } from './api';
 
-const ContainerSelector = ({ onContainerSelect, selectedContainer }) => {
+const ContainerSelector = ({ onContainerSelect, selectedContainer, currentUser }) => {
   const [containers, setContainers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -37,24 +37,30 @@ const ContainerSelector = ({ onContainerSelect, selectedContainer }) => {
   const handleCreateContainer = async () => {
     if (isCreating) return; // Prevent double creation
     
+    // Check user limits
+    if (currentUser.role === 'user' && containers.length >= 1) {
+      alert('Server limit reached. Regular users can only create 1 server. Contact your administrator for more servers.');
+      return;
+    }
+    
     setIsCreating(true);
     try {
-      // Check if container name already exists
+      // Check if server name already exists
       const existingContainer = containers.find(c => 
         c.Names?.[0]?.replace('/', '') === createForm.name
       );
       
       if (existingContainer) {
-        alert(`Container with name "${createForm.name}" already exists. Please choose a different name.`);
+        alert(`Server with name "${createForm.name}" already exists. Please choose a different name.`);
         return;
       }
 
-      // Create container using Docker API
-      const response = await fetch('/api/containers', {
+      // Create container using authenticated API
+      const response = await fetch('/containers', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          'X-API-Key': 'supersecretkey'
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
         },
         body: JSON.stringify({
           name: createForm.name,
@@ -192,8 +198,20 @@ const ContainerSelector = ({ onContainerSelect, selectedContainer }) => {
       <div className="container mx-auto px-4 py-8">
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-white mb-2">🐳 PteroLite Container Manager</h1>
-          <p className="text-gray-300 text-lg">Select or create a container to get started</p>
+          <h1 className="text-4xl font-bold text-white mb-2">🐳 PteroLite Server Manager</h1>
+          <p className="text-gray-300 text-lg">Select or create a server to get started</p>
+          {currentUser && (
+            <div className="mt-4 bg-blue-900 bg-opacity-30 border border-blue-700 rounded-lg p-3 inline-block">
+              <p className="text-blue-200 text-sm">
+                Welcome, <span className="font-medium text-blue-300">{currentUser.username}</span>
+                {currentUser.role === 'user' && (
+                  <span className="ml-2 text-yellow-300">
+                    (Server limit: {containers.length}/1)
+                  </span>
+                )}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Selected Container Info */}
@@ -202,7 +220,7 @@ const ContainerSelector = ({ onContainerSelect, selectedContainer }) => {
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-semibold text-blue-300">
-                  📁 Current Container: {selectedContainer.Names?.[0]?.replace('/', '') || 'Unnamed'}
+                  📁 Current Server: {selectedContainer.Names?.[0]?.replace('/', '') || 'Unnamed'}
                 </h3>
                 <p className="text-blue-200">
                   <span className="font-medium">Image:</span> {selectedContainer.Image} | 
