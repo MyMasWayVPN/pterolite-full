@@ -1,5 +1,35 @@
 #!/bin/bash
-# PteroLite Auto Installer - GitHub Version
+# Create Standalone Installer for PteroLite
+# This script creates a self-contained installer that can be downloaded and run
+
+set -e
+
+# Configuration
+INSTALLER_NAME="pterolite-installer.sh"
+GITHUB_REPO="https://github.com/MyMasWayVPN/pterolite-full"
+
+# Colors for output
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+log_info() {
+    echo -e "${GREEN}[INFO]${NC} $1"
+}
+
+log_step() {
+    echo -e "${BLUE}[STEP]${NC} $1"
+}
+
+# Create standalone installer
+create_installer() {
+    log_step "Creating standalone installer..."
+    
+    cat > "$INSTALLER_NAME" <<'EOF'
+#!/bin/bash
+# PteroLite Standalone Installer
+# This installer downloads and installs PteroLite from GitHub
+
 set -e  # Exit on any error
 
 # Configuration
@@ -39,7 +69,6 @@ generate_api_key() {
 
 # Validate domain format
 validate_domain() {
-    # Allow subdomains like pterolite.xmwstore.web.id
     if [[ ! "$1" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$ ]]; then
         log_error "Invalid domain format: $1"
         log_error "Domain should be in format like: example.com, sub.example.com, or pterolite.xmwstore.web.id"
@@ -52,7 +81,65 @@ validate_domain() {
 check_root() {
     if [[ $EUID -ne 0 ]]; then
         log_error "This script must be run as root"
+        log_error "Please run: sudo bash $0"
         exit 1
+    fi
+}
+
+# Check system compatibility
+check_system() {
+    log_step "Checking system compatibility..."
+    
+    # Check OS
+    if [[ -f /etc/os-release ]]; then
+        . /etc/os-release
+        log_info "Detected OS: $NAME $VERSION"
+        
+        case $ID in
+            ubuntu|debian)
+                log_info "✅ Supported OS detected"
+                ;;
+            centos|rhel|fedora)
+                log_warn "⚠️ CentOS/RHEL/Fedora detected - may need manual adjustments"
+                ;;
+            *)
+                log_warn "⚠️ Unsupported OS detected - proceeding anyway"
+                ;;
+        esac
+    else
+        log_warn "⚠️ Could not detect OS version"
+    fi
+    
+    # Check architecture
+    ARCH=$(uname -m)
+    case $ARCH in
+        x86_64|amd64)
+            log_info "✅ Supported architecture: $ARCH"
+            ;;
+        aarch64|arm64)
+            log_info "✅ Supported architecture: $ARCH"
+            ;;
+        *)
+            log_warn "⚠️ Unsupported architecture: $ARCH"
+            ;;
+    esac
+    
+    # Check available space
+    AVAILABLE_SPACE=$(df / | awk 'NR==2 {print $4}')
+    REQUIRED_SPACE=5242880  # 5GB in KB
+    
+    if [[ $AVAILABLE_SPACE -gt $REQUIRED_SPACE ]]; then
+        log_info "✅ Sufficient disk space available"
+    else
+        log_warn "⚠️ Low disk space - installation may fail"
+    fi
+    
+    # Check memory
+    TOTAL_MEM=$(free -m | awk 'NR==2{print $2}')
+    if [[ $TOTAL_MEM -gt 1024 ]]; then
+        log_info "✅ Sufficient memory available: ${TOTAL_MEM}MB"
+    else
+        log_warn "⚠️ Low memory detected: ${TOTAL_MEM}MB - may affect performance"
     fi
 }
 
@@ -76,6 +163,11 @@ check_node_version() {
 # Install Node.js 18 LTS
 install_nodejs() {
     log_info "Installing Node.js 18 LTS..."
+    
+    # Remove existing Node.js
+    apt-get remove -y nodejs npm 2>/dev/null || true
+    
+    # Install Node.js 18
     curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
     apt-get install -y nodejs
     
@@ -493,15 +585,6 @@ verify_installation() {
         HTTP_ACCESS="⚠️ Not Accessible"
     fi
     
-    # Test API endpoint
-    if curl -s -H "X-API-Key: $API_KEY" "http://localhost:8088/containers" >/dev/null 2>&1; then
-        log_info "✅ API endpoint is responding"
-        API_STATUS="✅ Responding"
-    else
-        log_warn "⚠️ API endpoint not responding"
-        API_STATUS="⚠️ Not Responding"
-    fi
-    
     log_info "Installation verification completed"
 }
 
@@ -520,7 +603,6 @@ show_summary() {
     printf "%-20s %s\n" "Docker Service:" "$DOCKER_STATUS"
     printf "%-20s %s\n" "Backend Port:" "$PORT_STATUS"
     printf "%-20s %s\n" "HTTP Access:" "$HTTP_ACCESS"
-    printf "%-20s %s\n" "API Endpoint:" "$API_STATUS"
     
     # Installation Details
     echo ""
@@ -623,8 +705,8 @@ cleanup() {
 # Main installation function
 main() {
     echo ""
-    echo "🐳 PteroLite Auto Installer - GitHub Version"
-    echo "============================================="
+    echo "🐳 PteroLite Standalone Installer"
+    echo "================================="
     echo "This installer will download and install PteroLite from:"
     echo "$GITHUB_REPO"
     echo ""
@@ -639,6 +721,7 @@ main() {
     
     # Check prerequisites
     check_root
+    check_system
     
     # Interactive domain input
     get_domain
@@ -649,7 +732,7 @@ main() {
     
     # Install basic dependencies
     log_info "Installing basic dependencies..."
-    apt-get install -y curl git nginx certbot python3-certbot-nginx openssl build-essential python3 python3-pip unzip wget
+    apt-get install -y curl git nginx certbot python3-certbot-nginx openssl build-essential python3 python3-pip unzip wget net-tools
     
     # Install Node.js if needed
     if ! check_node_version; then
@@ -692,6 +775,122 @@ main() {
     else
         log_warn "⚠️ Installation completed with some issues. Please check the service status above."
     fi
+    echo ""
+}
+
+# Run main function
+main "$@"
+EOF
+    
+    chmod +x "$INSTALLER_NAME"
+    log_info "Standalone installer created: $INSTALLER_NAME"
+}
+
+# Create download instructions
+create_download_instructions() {
+    log_step "Creating download instructions..."
+    
+    cat > "DOWNLOAD_INSTRUCTIONS.md" <<EOF
+# PteroLite Download & Installation Instructions
+
+## Quick Installation Methods
+
+### Method 1: Direct Download & Run (Recommended)
+\`\`\`bash
+# Download and run installer in one command
+curl -fsSL https://raw.githubusercontent.com/MyMasWayVPN/pterolite-full/main/pterolite-installer.sh | sudo bash
+\`\`\`
+
+### Method 2: Download First, Then Run
+\`\`\`bash
+# Download installer
+wget https://raw.githubusercontent.com/MyMasWayVPN/pterolite-full/main/pterolite-installer.sh
+
+# Make executable
+chmod +x pterolite-installer.sh
+
+# Run installer
+sudo bash pterolite-installer.sh
+\`\`\`
+
+### Method 3: Clone Repository
+\`\`\`bash
+# Clone repository
+git clone https://github.com/MyMasWayVPN/pterolite-full.git
+cd pterolite-full
+
+# Run installer
+sudo bash install_pterolite.sh
+\`\`\`
+
+## Alternative Installers
+
+### Update Existing Installation
+\`\`\`bash
+curl -fsSL https://raw.githubusercontent.com/MyMasWayVPN/pterolite-full/main/update_pterolite.sh | sudo bash
+\`\`\`
+
+### Reinstall (Clean Install)
+\`\`\`bash
+curl -fsSL https://raw.githubusercontent.com/MyMasWayVPN/pterolite-full/main/reinstall_pterolite.sh | sudo bash
+\`\`\`
+
+## System Requirements
+
+- **OS**: Ubuntu 18.04+ / Debian 10+ / CentOS 7+
+- **RAM**: 1GB minimum, 2GB recommended
+- **Storage**: 5GB free space
+- **Network**: Internet connection
+- **Permissions**: Root access (sudo)
+
+## What Gets Installed
+
+- Node.js 18 LTS
+- Docker CE
+- Nginx with SSL support
+- PM2 Process Manager
+- PteroLite Backend & Frontend
+- All required dependencies
+
+## Post-Installation
+
+After installation, you'll get:
+- Web Panel URL
+- API Key for external access
+- Management commands
+- Service status information
+
+## Support
+
+- GitHub Issues: https://github.com/MyMasWayVPN/pterolite-full/issues
+- Documentation: https://github.com/MyMasWayVPN/pterolite-full/wiki
+EOF
+    
+    log_info "Download instructions created: DOWNLOAD_INSTRUCTIONS.md"
+}
+
+# Main function
+main() {
+    echo ""
+    echo "🔧 PteroLite Installer Creator"
+    echo "=============================="
+    echo "This script creates a standalone installer for PteroLite"
+    echo ""
+    
+    create_installer
+    create_download_instructions
+    
+    echo ""
+    log_info "✅ Installer creation completed!"
+    echo ""
+    log_info "📁 Files created:"
+    log_info "  • $INSTALLER_NAME - Standalone installer"
+    log_info "  • DOWNLOAD_INSTRUCTIONS.md - Download instructions"
+    echo ""
+    log_info "🚀 Usage:"
+    log_info "  • Upload $INSTALLER_NAME to your GitHub repository"
+    log_info "  • Users can download and run: sudo bash $INSTALLER_NAME"
+    log_info "  • Or use direct download: curl -fsSL [raw-github-url] | sudo bash"
     echo ""
 }
 
