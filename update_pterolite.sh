@@ -1036,6 +1036,7 @@ main() {
     migrate_to_systemd
     check_ssl_status
     update_nginx_config
+    update_nginx_tunnel_config
     fix_ssl_certificate
     start_services
     
