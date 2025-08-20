@@ -330,8 +330,88 @@ migrate_pm2_to_systemd() {
 update_nginx_config() {
     log_step "Updating nginx configuration..."
     
+    # Check if SSL certificate exists
+    SSL_CERT_PATH="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
+    SSL_KEY_PATH="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
+    HAS_SSL=false
+    
+    if [[ -f "$SSL_CERT_PATH" && -f "$SSL_KEY_PATH" ]]; then
+        log_info "SSL certificate found for $DOMAIN"
+        HAS_SSL=true
+    else
+        log_warn "No SSL certificate found for $DOMAIN"
+    fi
+    
     # Create updated nginx configuration
-    cat > /etc/nginx/sites-available/pterolite.conf <<EOF
+    if [[ "$HAS_SSL" == "true" ]]; then
+        log_info "Creating nginx configuration with SSL support..."
+        cat > /etc/nginx/sites-available/pterolite.conf <<EOF
+# HTTP to HTTPS redirect
+server {
+    listen 80;
+    server_name $DOMAIN;
+    return 301 https://\$server_name\$request_uri;
+}
+
+# HTTPS server
+server {
+    listen 443 ssl http2;
+    server_name $DOMAIN;
+    root $WEB_ROOT;
+    index index.html;
+
+    # SSL Configuration
+    ssl_certificate $SSL_CERT_PATH;
+    ssl_certificate_key $SSL_KEY_PATH;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+
+    # Serve static files (React frontend)
+    location / {
+        try_files \$uri \$uri/ /index.html;
+    }
+
+    # API proxy untuk web panel (tanpa auth requirement)
+    location /api/ {
+        proxy_pass http://127.0.0.1:8088/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # API eksternal dengan authentication (untuk akses programmatic)
+    location /external-api/ {
+        proxy_pass http://127.0.0.1:8088/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "no-referrer-when-downgrade" always;
+    add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+}
+EOF
+    else
+        log_info "Creating nginx configuration for HTTP only..."
+        cat > /etc/nginx/sites-available/pterolite.conf <<EOF
 server {
     listen 80;
     server_name $DOMAIN;
@@ -377,6 +457,7 @@ server {
     add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
 }
 EOF
+    fi
     
     # Test nginx configuration
     log_info "Testing nginx configuration..."
@@ -385,10 +466,16 @@ EOF
         systemctl reload nginx
     else
         log_error "Nginx configuration test failed"
+        log_error "Restoring backup nginx configuration..."
+        if [[ -f "$BACKUP_DIR/nginx/pterolite.conf" ]]; then
+            cp "$BACKUP_DIR/nginx/pterolite.conf" /etc/nginx/sites-available/pterolite.conf
+            nginx -t && systemctl reload nginx
+            log_warn "Backup nginx configuration restored"
+        fi
         exit 1
     fi
     
-    log_info "Nginx configuration updated"
+    log_info "Nginx configuration updated successfully"
 }
 
 # Start services
@@ -490,11 +577,13 @@ show_summary() {
     log_info "🌐 ACCESS INFORMATION:"
     echo "================================"
     if [[ -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]]; then
-        log_info "Web Panel: https://$DOMAIN"
-        log_info "API Eksternal: https://$DOMAIN/external-api"
+        log_info "Web Panel: https://$DOMAIN (SSL enabled)"
+        log_info "API Eksternal: https://$DOMAIN/external-api (SSL enabled)"
+        log_info "HTTP redirects to HTTPS automatically"
     else
-        log_info "Web Panel: http://$DOMAIN"
-        log_info "API Eksternal: http://$DOMAIN/external-api"
+        log_info "Web Panel: http://$DOMAIN (HTTP only)"
+        log_info "API Eksternal: http://$DOMAIN/external-api (HTTP only)"
+        log_warn "SSL certificate not found - consider running: certbot --nginx -d $DOMAIN"
     fi
     
     # New Features
