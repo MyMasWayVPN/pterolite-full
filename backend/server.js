@@ -126,9 +126,24 @@ class ProcessManager {
     const proc = this.processes.get(id);
     if (proc && proc.process && proc.status === 'running') {
       try {
+        // Try graceful termination first
         proc.process.kill('SIGTERM');
         proc.status = 'killed';
-        this.addLog(id, 'system', 'Process killed by user');
+        this.addLog(id, 'system', 'Process killed by user (SIGTERM)');
+        
+        // Force kill after 5 seconds if still running
+        setTimeout(() => {
+          const currentProc = this.processes.get(id);
+          if (currentProc && currentProc.process && currentProc.status === 'killed') {
+            try {
+              currentProc.process.kill('SIGKILL');
+              this.addLog(id, 'system', 'Process force killed (SIGKILL)');
+            } catch (forceKillError) {
+              this.addLog(id, 'error', `Failed to force kill process: ${forceKillError.message}`);
+            }
+          }
+        }, 5000);
+        
         return true;
       } catch (error) {
         this.addLog(id, 'error', `Failed to kill process: ${error.message}`);
@@ -139,8 +154,51 @@ class ProcessManager {
   }
 
   removeProcess(id) {
+    const proc = this.processes.get(id);
+    if (proc) {
+      // If process is still running, try to kill it first
+      if (proc.status === 'running' && proc.process) {
+        try {
+          proc.process.kill('SIGKILL');
+          this.addLog(id, 'system', 'Process force killed during removal');
+        } catch (killError) {
+          this.addLog(id, 'error', `Failed to kill process during removal: ${killError.message}`);
+        }
+      }
+    }
+    
     this.processes.delete(id);
     this.logs.delete(id);
+    return true;
+  }
+
+  // Check if process is actually running (not just status)
+  isProcessActuallyRunning(id) {
+    const proc = this.processes.get(id);
+    if (!proc || !proc.process) {
+      return false;
+    }
+    
+    try {
+      // Check if process is still alive
+      const isAlive = !proc.process.killed && proc.process.pid && process.kill(proc.process.pid, 0);
+      return isAlive;
+    } catch (error) {
+      // Process doesn't exist
+      return false;
+    }
+  }
+
+  // Clean up finished/dead processes
+  cleanupDeadProcesses() {
+    for (const [id, proc] of this.processes.entries()) {
+      if (proc.status === 'running' && !this.isProcessActuallyRunning(id)) {
+        // Process is marked as running but actually dead
+        proc.status = 'finished';
+        proc.exitCode = -1;
+        this.addLog(id, 'system', 'Process detected as finished (cleanup)');
+      }
+    }
   }
 }
 
@@ -856,6 +914,10 @@ app.post("/files/mkdir", webPanelAuth, (req, res) => {
 // Get all running processes (optionally filtered by container)
 app.get("/processes", webPanelAuth, (req, res) => {
   const containerId = req.query.containerId;
+  
+  // Clean up dead processes before returning
+  processManager.cleanupDeadProcesses();
+  
   const allProcesses = processManager.getAllProcesses();
   
   if (containerId) {

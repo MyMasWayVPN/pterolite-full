@@ -236,6 +236,21 @@ const Console = ({ selectedContainer, containerFolder }) => {
 
   const handleKillProcess = async (processId) => {
     try {
+      // Clear auto-restart for this process if it's being manually killed
+      const process = processes[processId];
+      if (process && lastCommand && process.info.name === lastProcessName) {
+        setLastCommand('');
+        setLastProcessName('');
+        
+        const killOutput = {
+          id: Date.now(),
+          type: 'info',
+          timestamp: new Date().toLocaleTimeString(),
+          message: `🛑 Process manually killed - Auto restart disabled`
+        };
+        setOutput(prev => [...prev, killOutput]);
+      }
+      
       await killProcess(processId);
       loadProcesses();
       if (selectedProcess === processId) {
@@ -244,6 +259,13 @@ const Console = ({ selectedContainer, containerFolder }) => {
       }
     } catch (error) {
       console.error('Failed to kill process:', error);
+      const errorOutput = {
+        id: Date.now(),
+        type: 'error',
+        timestamp: new Date().toLocaleTimeString(),
+        error: `Failed to kill process: ${error.message}`
+      };
+      setOutput(prev => [...prev, errorOutput]);
     }
   };
 
@@ -251,12 +273,52 @@ const Console = ({ selectedContainer, containerFolder }) => {
     try {
       const process = processes[processId];
       
-      // If process is still running, kill it first
-      if (process && process.status === 'running') {
-        await killProcess(processId);
-        // Wait a moment for the process to be killed
-        await new Promise(resolve => setTimeout(resolve, 1000));
+      // Clear auto-restart for this process if it's being manually removed
+      if (process && lastCommand && process.info.name === lastProcessName) {
+        setLastCommand('');
+        setLastProcessName('');
         
+        const removeOutput = {
+          id: Date.now(),
+          type: 'info',
+          timestamp: new Date().toLocaleTimeString(),
+          message: `🗑️ Process manually removed - Auto restart disabled`
+        };
+        setOutput(prev => [...prev, removeOutput]);
+      }
+      
+      // If process is still running, kill it first and wait for confirmation
+      if (process && process.status === 'running') {
+        const confirmKill = window.confirm(
+          `Process "${process.info.name}" is still running. Do you want to kill it first before removing?`
+        );
+        
+        if (confirmKill) {
+          await killProcess(processId);
+          // Wait longer for the process to be properly killed
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          // Refresh processes to get updated status
+          await loadProcesses();
+          
+          // Check if process is actually killed
+          const updatedProcesses = await getProcesses(selectedContainer?.Id);
+          const updatedProcess = updatedProcesses[processId];
+          
+          if (updatedProcess && updatedProcess.status === 'running') {
+            const errorOutput = {
+              id: Date.now(),
+              type: 'error',
+              timestamp: new Date().toLocaleTimeString(),
+              error: `Failed to kill process before removal. Process is still running.`
+            };
+            setOutput(prev => [...prev, errorOutput]);
+            return;
+          }
+        } else {
+          // User cancelled, don't remove
+          return;
+        }
       }
       
       await removeProcess(processId);
@@ -267,6 +329,13 @@ const Console = ({ selectedContainer, containerFolder }) => {
       }
     } catch (error) {
       console.error('Failed to remove process:', error);
+      const errorOutput = {
+        id: Date.now(),
+        type: 'error',
+        timestamp: new Date().toLocaleTimeString(),
+        error: `Failed to remove process: ${error.message}`
+      };
+      setOutput(prev => [...prev, errorOutput]);
     }
   };
 
