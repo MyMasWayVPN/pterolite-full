@@ -52,7 +52,7 @@ PteroLite adalah platform manajemen container Docker yang powerful dengan web in
 ### One-Line Installation
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MyMasWayVPN/pterolite-full/main/install_pterolite.sh | sudo bash
+bash <(curl -s https://raw.githubusercontent.com/MyMasWayVPN/pterolite-full/main/install_pterolite.sh)
 ```
 
 ### Manual Installation
@@ -193,13 +193,13 @@ docker images
 ### Update PteroLite
 ```bash
 # Download dan run update script
-curl -fsSL https://raw.githubusercontent.com/MyMasWayVPN/pterolite-full/main/update_pterolite.sh | sudo bash
+bash <(curl -s https://raw.githubusercontent.com/MyMasWayVPN/pterolite-full/main/update_pterolite.sh)
 ```
 
 ### Reinstall PteroLite
 ```bash
 # Download dan run reinstall script
-curl -fsSL https://raw.githubusercontent.com/MyMasWayVPN/pterolite-full/main/reinstall_pterolite.sh | sudo bash
+bash <(curl -s https://raw.githubusercontent.com/MyMasWayVPN/pterolite-full/main/reinstall_pterolite.sh)
 ```
 
 ### Backup Configuration
@@ -393,3 +393,4 @@ For professional support, custom development, or enterprise features, please con
 **Made with ❤️ for the Docker community**
 
 **⭐ Star this repository if you find it useful!**
+
