@@ -21,7 +21,8 @@ const TunnelManager = ({ selectedContainer, containerFolder }) => {
     port: '',
     name: '',
     subdomain: '',
-    type: 'quick' // 'quick' or 'named'
+    type: 'quick', // 'quick', 'named', or 'token'
+    token: ''
   });
   const [selectedTunnel, setSelectedTunnel] = useState(null);
   const [tunnelLogs, setTunnelLogs] = useState([]);
@@ -323,11 +324,14 @@ const TunnelManager = ({ selectedContainer, containerFolder }) => {
                 >
                   <option value="quick">Quick Tunnel (Temporary)</option>
                   <option value="named">Named Tunnel (Persistent)</option>
+                  <option value="token">Token Tunnel (Manual)</option>
                 </select>
                 <p className="text-xs text-gray-400 mt-1">
                   {createForm.type === 'quick' 
                     ? 'Creates a temporary tunnel with random URL' 
-                    : 'Creates a persistent tunnel with custom subdomain'
+                    : createForm.type === 'named'
+                    ? 'Creates a persistent tunnel with custom subdomain'
+                    : 'Use your own Cloudflare Tunnel token'
                   }
                 </p>
               </div>
@@ -368,6 +372,22 @@ const TunnelManager = ({ selectedContainer, containerFolder }) => {
                   />
                   <p className="text-xs text-gray-400 mt-1">
                     Custom subdomain for your tunnel
+                  </p>
+                </div>
+              )}
+
+              {createForm.type === 'token' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Cloudflare Tunnel Token</label>
+                  <textarea
+                    value={createForm.token}
+                    onChange={(e) => setCreateForm({...createForm, token: e.target.value})}
+                    className="w-full px-3 py-2 bg-dark-tertiary border border-dark text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="eyJhIjoiNzU2..."
+                    rows="3"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">
+                    Paste your Cloudflare Tunnel token from the dashboard
                   </p>
                 </div>
               )}

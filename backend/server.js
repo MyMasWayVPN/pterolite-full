@@ -1460,7 +1460,7 @@ app.get("/tunnels", webPanelAuth, (req, res) => {
 
 // Create new Cloudflare tunnel
 app.post("/tunnels/create", webPanelAuth, (req, res) => {
-  const { port, name, subdomain } = req.body;
+  const { port, name } = req.body;
   
   if (!port) {
     return res.status(400).json({ error: "Port is required" });
@@ -1468,7 +1468,6 @@ app.post("/tunnels/create", webPanelAuth, (req, res) => {
   
   const tunnelId = uuidv4();
   const tunnelName = name || `tunnel-${port}`;
-  const tunnelSubdomain = subdomain || `pterolite-${port}-${Date.now()}`;
   
   try {
     // Check if cloudflared is installed
@@ -1479,8 +1478,8 @@ app.post("/tunnels/create", webPanelAuth, (req, res) => {
         });
       }
       
-      // Create tunnel command
-      const tunnelCommand = `cloudflared tunnel --url http://localhost:${port} --name ${tunnelSubdomain}`;
+      // Create quick tunnel command (no certificate required)
+      const tunnelCommand = `cloudflared tunnel --url http://localhost:${port}`;
       
       const process = spawn('bash', ['-c', tunnelCommand], {
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -1491,18 +1490,17 @@ app.post("/tunnels/create", webPanelAuth, (req, res) => {
         id: tunnelId,
         name: tunnelName,
         port: port,
-        subdomain: tunnelSubdomain,
         command: tunnelCommand,
-        type: 'cloudflare-tunnel'
+        type: 'quick-tunnel'
       };
       
       tunnelManager.addTunnel(tunnelId, process, tunnelInfo);
-      tunnelManager.addTunnelLog(tunnelId, 'system', `Cloudflare tunnel started for port ${port}`);
+      tunnelManager.addTunnelLog(tunnelId, 'system', `Quick tunnel started for port ${port}`);
       
       res.json({
         success: true,
         tunnelId,
-        message: `Cloudflare tunnel created for port ${port}`,
+        message: `Quick tunnel created for port ${port}`,
         info: tunnelInfo
       });
     });
@@ -1554,6 +1552,58 @@ app.post("/tunnels/quick", webPanelAuth, (req, res) => {
         success: true,
         tunnelId,
         message: `Quick tunnel created for port ${port}`,
+        info: tunnelInfo
+      });
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create token tunnel (using Cloudflare Tunnel token)
+app.post("/tunnels/token", webPanelAuth, (req, res) => {
+  const { port, name, token } = req.body;
+  
+  if (!port || !token) {
+    return res.status(400).json({ error: "Port and token are required" });
+  }
+  
+  const tunnelId = uuidv4();
+  const tunnelName = name || `token-tunnel-${port}`;
+  
+  try {
+    // Check if cloudflared is installed
+    exec('which cloudflared', (error) => {
+      if (error) {
+        return res.status(400).json({ 
+          error: "Cloudflared not installed. Please install it first using the tunnel installer." 
+        });
+      }
+      
+      // Create token tunnel command
+      const tunnelCommand = `cloudflared tunnel --token ${token} --url http://localhost:${port}`;
+      
+      const process = spawn('bash', ['-c', tunnelCommand], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        detached: true
+      });
+      
+      const tunnelInfo = {
+        id: tunnelId,
+        name: tunnelName,
+        port: port,
+        command: tunnelCommand,
+        type: 'token-tunnel',
+        token: token.substring(0, 20) + '...' // Only show first 20 chars for security
+      };
+      
+      tunnelManager.addTunnel(tunnelId, process, tunnelInfo);
+      tunnelManager.addTunnelLog(tunnelId, 'system', `Token tunnel started for port ${port}`);
+      
+      res.json({
+        success: true,
+        tunnelId,
+        message: `Token tunnel created for port ${port}`,
         info: tunnelInfo
       });
     });

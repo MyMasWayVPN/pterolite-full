@@ -47,12 +47,41 @@ PteroLite adalah platform manajemen container Docker yang powerful dengan web in
 - **Image Information** - View image details dan layers
 - **Cleanup Tools** - Remove unused images
 
+## 📦 Installation Modes
+
+PteroLite mendukung 2 mode instalasi:
+
+### 🌐 Domain Mode
+- **Requirements**: Domain name yang sudah pointing ke server
+- **Features**: SSL dengan Let's Encrypt, Nginx reverse proxy
+- **Access**: `http://yourdomain.com` atau `https://yourdomain.com`
+- **API**: `http://yourdomain.com/external-api`
+- **Structure**: Frontend di `/var/www/pterolite`, Backend di `/opt/pterolite`
+
+### 🏠 Localhost Mode  
+- **Requirements**: Tidak perlu domain
+- **Features**: Direct port access, tanpa SSL
+- **Access**: `http://localhost:8088` atau `http://SERVER-IP:8088`
+- **API**: `http://localhost:8088/api`
+- **Structure**: Frontend di `/opt/pterolite/public`, Backend di `/opt/pterolite`
+
 ## 🚀 Quick Installation
 
 ### One-Line Installation
 
 ```bash
 bash <(curl -s https://raw.githubusercontent.com/MyMasWayVPN/pterolite-full/main/install_pterolite.sh)
+```
+
+Installer akan menanyakan pilihan mode instalasi:
+```
+Installation Type Selection
+================================
+Choose your installation type:
+1) Install with Domain (requires domain name and optional SSL)
+2) Install for Localhost Only (no domain required, HTTP only)
+
+Choose installation type (1-2):
 ```
 
 ### Manual Installation
@@ -79,6 +108,23 @@ cd pterolite-full
 sudo bash install_pterolite.sh
 ```
 
+### 🔧 Complete Manager Tool
+
+Untuk manajemen lengkap, gunakan PteroLite Manager:
+
+```bash
+# Download manager (curl version)
+bash <(curl -s https://raw.githubusercontent.com/MyMasWayVPN/pterolite-full/main/pterolite-manager.sh)
+```
+
+Manager menyediakan:
+- 🆕 **Fresh Install** - Instalasi baru dengan pilihan mode
+- 🔄 **Reinstall** - Reinstall dengan backup otomatis  
+- ⬆️ **Update** - Update ke versi terbaru
+- 🗑️ **Uninstall** - Penghapusan lengkap dengan backup
+- ℹ️ **Status** - Check status instalasi
+- 🔧 **Service Management** - Start/Stop/Restart/Logs
+
 ## 📋 System Requirements
 
 | Component | Minimum | Recommended |
@@ -90,18 +136,24 @@ sudo bash install_pterolite.sh
 | **Network** | Internet connection | Stable internet connection |
 
 ### Required Ports
+
+#### Domain Mode
 - **80** - HTTP (akan redirect ke HTTPS)
 - **443** - HTTPS (web panel)
 - **8088** - Backend API (internal)
 
+#### Localhost Mode
+- **8088** - Direct access (web panel + API)
+
 ## 🎯 Installation Process
 
-### 1. Domain Configuration
+### Domain Mode Setup
+1. **Domain Configuration**
 ```
 Enter your domain name (e.g., pterolite.xmwstore.web.id): your-domain.com
 ```
 
-### 2. SSL Certificate Setup
+2. **SSL Certificate Setup**
 ```
 SSL Certificate options:
 1) Install Let's Encrypt SSL certificate (recommended)
@@ -110,12 +162,17 @@ SSL Certificate options:
 Choose an option (1-2): 1
 ```
 
-### 3. Email for SSL
+3. **Email for SSL**
 ```
 Enter email address for Let's Encrypt notifications: admin@your-domain.com
 ```
 
-### 4. Automatic Installation
+### Localhost Mode Setup
+- Tidak ada konfigurasi domain
+- SSL setup di-skip otomatis
+- Langsung akses via port 8088
+
+### Automatic Installation
 Installer akan otomatis:
 - ✅ Update system packages
 - ✅ Install Node.js 18 LTS
@@ -123,29 +180,31 @@ Installer akan otomatis:
 - ✅ Download PteroLite dari GitHub
 - ✅ Setup backend dengan systemd service
 - ✅ Build dan deploy frontend
-- ✅ Configure Nginx dengan SSL
+- ✅ Configure Nginx (Domain mode) atau skip (Localhost mode)
 - ✅ Verify installation
 
 ## 🌐 Access Your Panel
 
-Setelah instalasi selesai:
-
-### Web Panel
+### Domain Mode
 ```
-🌐 Web Panel: https://your-domain.com
-```
-- Akses langsung tanpa authentication
-- Full featured web interface
-- Real-time container management
-
-### API Access
-```
-🔗 API Endpoint: https://your-domain.com/external-api
+🌐 Web Panel HTTP: http://your-domain.com
+🔒 Web Panel HTTPS: https://your-domain.com (jika SSL enabled)
+🔗 API Endpoint: http://your-domain.com/external-api
 📋 API Key: [your-generated-api-key]
 ```
-- Untuk akses programmatic
-- Gunakan X-API-Key header
-- RESTful API endpoints
+
+### Localhost Mode
+```
+🏠 Web Panel: http://localhost:8088
+🌍 Web Panel (IP): http://SERVER-IP:8088
+🔗 API Endpoint: http://localhost:8088/api
+📋 API Key: [your-generated-api-key]
+```
+
+- Akses langsung tanpa authentication untuk web panel
+- Full featured web interface
+- Real-time container management
+- Untuk akses programmatic gunakan X-API-Key header
 
 ## 🔧 Management Commands
 
@@ -164,7 +223,7 @@ systemctl stop pterolite
 systemctl status pterolite
 ```
 
-### Web Server Management
+### Web Server Management (Domain Mode Only)
 ```bash
 # Check nginx status
 systemctl status nginx
@@ -206,7 +265,12 @@ bash <(curl -s https://raw.githubusercontent.com/MyMasWayVPN/pterolite-full/main
 ```bash
 # Backup important files
 sudo cp -r /opt/pterolite /opt/pterolite-backup-$(date +%Y%m%d)
+
+# Domain mode - backup nginx config
 sudo cp /etc/nginx/sites-available/pterolite.conf /opt/pterolite-backup-$(date +%Y%m%d)/
+
+# Localhost mode - backup frontend
+sudo cp -r /opt/pterolite/public /opt/pterolite-backup-$(date +%Y%m%d)/
 ```
 
 ## 🛠️ Development
@@ -233,19 +297,21 @@ npm run dev
 ### Project Structure
 ```
 pterolite-full/
-├── backend/                 # Node.js Express API
-│   ├── server.js           # Main server file
-│   ├── package.json        # Backend dependencies
-│   └── .env               # Environment variables
-├── frontend/               # React frontend
-│   ├── src/               # Source files
-│   ├── public/            # Static assets
-│   ├── package.json       # Frontend dependencies
-│   └── vite.config.js     # Vite configuration
-├── install_pterolite.sh    # Main installer
-├── reinstall_pterolite.sh  # Reinstaller
-├── update_pterolite.sh     # Updater
-└── README.md              # This file
+├── backend/                      # Node.js Express API
+│   ├── server.js                # Main server file
+│   ├── package.json             # Backend dependencies
+│   └── .env                     # Environment variables
+├── frontend/                     # React frontend
+│   ├── src/                     # Source files
+│   ├── public/                  # Static assets
+│   ├── package.json             # Frontend dependencies
+│   └── vite.config.js           # Vite configuration
+├── install_pterolite.sh          # Main installer (dual mode)
+├── reinstall_pterolite.sh        # Reinstaller (dual mode)
+├── update_pterolite.sh           # Updater (dual mode)
+├── pterolite-manager-curl.sh     # Complete manager (curl version)
+├── pterolite-manager.sh          # Complete manager (local version)
+└── README.md                     # This file
 ```
 
 ### API Endpoints
@@ -278,7 +344,7 @@ POST   /api/execute/command         # Execute shell command
 
 ### Web Panel Security
 - Web panel dapat diakses langsung tanpa API key
-- Gunakan HTTPS untuk production
+- Gunakan HTTPS untuk production (Domain mode)
 - Implement proper firewall rules
 
 ### API Security
@@ -288,11 +354,16 @@ POST   /api/execute/command         # Execute shell command
 
 ### System Security
 ```bash
-# Recommended firewall setup
+# Domain mode firewall setup
 ufw enable
 ufw allow ssh
 ufw allow 80
 ufw allow 443
+
+# Localhost mode firewall setup
+ufw enable
+ufw allow ssh
+ufw allow 8088
 ```
 
 ## 🐛 Troubleshooting
@@ -311,7 +382,7 @@ netstat -tulpn | grep 8088
 systemctl restart pterolite
 ```
 
-#### Frontend Not Loading
+#### Frontend Not Loading (Domain Mode)
 ```bash
 # Check nginx
 systemctl status nginx
@@ -321,6 +392,18 @@ ls -la /var/www/pterolite/
 
 # Check nginx logs
 tail -f /var/log/nginx/error.log
+```
+
+#### Frontend Not Loading (Localhost Mode)
+```bash
+# Check if frontend files exist
+ls -la /opt/pterolite/public/
+
+# Check port accessibility
+curl http://localhost:8088
+
+# Check firewall
+ufw status
 ```
 
 #### Docker Issues
@@ -337,13 +420,15 @@ systemctl restart docker
 
 ### Log Locations
 - **Backend**: `journalctl -u pterolite -f`
-- **Nginx Access**: `/var/log/nginx/access.log`
-- **Nginx Error**: `/var/log/nginx/error.log`
+- **Nginx Access** (Domain mode): `/var/log/nginx/access.log`
+- **Nginx Error** (Domain mode): `/var/log/nginx/error.log`
 - **System**: `journalctl -u nginx`
 
 ## 📚 Documentation
 
-- **[Installation Guide](INSTALL_GUIDE.md)** - Detailed installation instructions
+- **[Installation Guide](INSTALLATION_GUIDE.md)** - Detailed installation instructions
+- **[Installation Modes](INSTALLATION_MODES.md)** - Dual mode explanation
+- **[Manager Documentation](PTEROLITE_MANAGER.md)** - Complete manager guide
 - **[API Documentation](API.md)** - Complete API reference
 - **[User Guide](USER_GUIDE.md)** - How to use PteroLite
 - **[Troubleshooting](TROUBLESHOOTING.md)** - Common issues and solutions
@@ -393,4 +478,3 @@ For professional support, custom development, or enterprise features, please con
 **Made with ❤️ for the Docker community**
 
 **⭐ Star this repository if you find it useful!**
-

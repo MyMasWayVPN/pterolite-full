@@ -206,8 +206,45 @@ download_project() {
     log_info "Project downloaded and verified successfully"
 }
 
-# Interactive domain input
+# Choose installation type
+choose_installation_type() {
+    echo ""
+    log_info "Installation Type Selection"
+    echo "================================"
+    echo "Choose your installation type:"
+    echo "1) Install with Domain (requires domain name and optional SSL)"
+    echo "2) Install for Localhost Only (no domain required, HTTP only)"
+    echo ""
+    
+    while true; do
+        read -p "Choose installation type (1-2): " install_choice
+        
+        case $install_choice in
+            1)
+                INSTALLATION_MODE="domain"
+                log_info "Selected: Installation with Domain"
+                break
+                ;;
+            2)
+                INSTALLATION_MODE="localhost"
+                log_info "Selected: Localhost Only Installation"
+                break
+                ;;
+            *)
+                log_error "Invalid choice. Please enter 1 or 2."
+                ;;
+        esac
+    done
+}
+
+# Interactive domain input (only for domain mode)
 get_domain() {
+    if [[ "$INSTALLATION_MODE" == "localhost" ]]; then
+        DOMAIN="localhost"
+        log_info "Using localhost for installation"
+        return 0
+    fi
+    
     echo ""
     log_info "Domain Configuration"
     echo "================================"
@@ -229,8 +266,14 @@ get_domain() {
     done
 }
 
-# Interactive SSL setup
+# Interactive SSL setup (only for domain mode)
 setup_ssl_interactive() {
+    if [[ "$INSTALLATION_MODE" == "localhost" ]]; then
+        log_info "Localhost mode selected - skipping SSL setup"
+        SSL_ENABLED=false
+        return 0
+    fi
+    
     echo ""
     log_info "SSL Certificate Configuration"
     echo "================================"
@@ -363,22 +406,41 @@ setup_frontend() {
     
     log_info "Frontend build completed successfully"
     
-    # Create web root and copy built frontend
-    log_info "Deploying frontend files to web root..."
-    mkdir -p "$WEB_ROOT"
-    cp -r dist/* "$WEB_ROOT/"
-    
-    # Verify deployment
-    if [[ ! -f "$WEB_ROOT/index.html" ]]; then
-        log_error "Frontend deployment failed - index.html not found in web root"
-        exit 1
+    if [[ "$INSTALLATION_MODE" == "localhost" ]]; then
+        # For localhost mode, copy frontend to backend directory for direct serving
+        log_info "Deploying frontend files to backend directory for direct serving..."
+        mkdir -p "$INSTALL_DIR/public"
+        cp -r dist/* "$INSTALL_DIR/public/"
+        
+        # Verify deployment
+        if [[ ! -f "$INSTALL_DIR/public/index.html" ]]; then
+            log_error "Frontend deployment failed - index.html not found in backend public directory"
+            exit 1
+        fi
+        
+        log_info "Frontend deployed to backend public directory"
+        
+        # Set proper permissions
+        chown -R root:root "$INSTALL_DIR/public"
+        chmod -R 755 "$INSTALL_DIR/public"
+    else
+        # For domain mode, use nginx web root
+        log_info "Deploying frontend files to web root..."
+        mkdir -p "$WEB_ROOT"
+        cp -r dist/* "$WEB_ROOT/"
+        
+        # Verify deployment
+        if [[ ! -f "$WEB_ROOT/index.html" ]]; then
+            log_error "Frontend deployment failed - index.html not found in web root"
+            exit 1
+        fi
+        
+        log_info "Frontend deployed successfully"
+        
+        # Set proper permissions
+        chown -R www-data:www-data "$WEB_ROOT"
+        chmod -R 755 "$WEB_ROOT"
     fi
-    
-    log_info "Frontend deployed successfully"
-    
-    # Set proper permissions
-    chown -R www-data:www-data "$WEB_ROOT"
-    chmod -R 755 "$WEB_ROOT"
 }
 
 # Create systemd service
@@ -438,9 +500,9 @@ start_services() {
     fi
 }
 
-# Configure Nginx
-configure_nginx() {
-    log_step "Configuring Nginx..."
+# Configure Nginx for domain mode
+configure_nginx_domain() {
+    log_step "Configuring Nginx for domain mode..."
     
     # Create nginx configuration without HTTPS redirect
     cat > /etc/nginx/sites-available/pterolite.conf <<EOF
@@ -560,6 +622,19 @@ server {
         proxy_cache_bypass \$http_upgrade;
     }
 
+    # Cloudflare Tunnel management endpoints
+    location /tunnels {
+        proxy_pass http://127.0.0.1:8088/tunnels;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
     # API eksternal dengan authentication (untuk akses programmatic)
     location /external-api/ {
         proxy_pass http://127.0.0.1:8088/api/;
@@ -581,6 +656,37 @@ server {
     add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
 }
 EOF
+    
+    log_info "Nginx configured for domain mode"
+}
+
+# Configure for localhost mode (skip nginx, use direct port access)
+configure_nginx_localhost() {
+    log_step "Configuring localhost mode (direct port access)..."
+    
+    # For localhost mode, we skip nginx configuration
+    # Users will access directly via http://localhost:8088
+    log_info "Localhost mode selected - skipping nginx configuration"
+    log_info "Application will be accessible directly on port 8088"
+    
+    # Disable nginx site to avoid conflicts
+    rm -f /etc/nginx/sites-enabled/pterolite.conf
+    rm -f /etc/nginx/sites-available/pterolite.conf
+    
+    # Reload nginx to remove any existing configuration
+    if systemctl is-active --quiet nginx; then
+        systemctl reload nginx
+        log_info "Nginx configuration cleared for localhost mode"
+    fi
+}
+
+# Configure Nginx (main function)
+configure_nginx() {
+    if [[ "$INSTALLATION_MODE" == "localhost" ]]; then
+        configure_nginx_localhost
+    else
+        configure_nginx_domain
+    fi
     
     # Enable site
     ln -sf /etc/nginx/sites-available/pterolite.conf /etc/nginx/sites-enabled/
@@ -685,7 +791,14 @@ show_summary() {
     echo ""
     log_info "🌐 ACCESS INFORMATION:"
     echo "================================"
-    if [[ "$SSL_ENABLED" == "true" ]]; then
+    if [[ "$INSTALLATION_MODE" == "localhost" ]]; then
+        log_info "Web Panel: http://localhost:8088"
+        log_info "Web Panel (IP): http://$(hostname -I | awk '{print $1}'):8088"
+        log_info "API Eksternal: http://localhost:8088/api (perlu X-API-Key header)"
+        log_info "API Eksternal (IP): http://$(hostname -I | awk '{print $1}'):8088/api (perlu X-API-Key header)"
+        log_info "Mode: Localhost Only (Direct Port Access, No Nginx, No SSL)"
+        PANEL_URL="http://localhost:8088"
+    elif [[ "$SSL_ENABLED" == "true" ]]; then
         log_info "Web Panel HTTP: http://$DOMAIN"
         log_info "Web Panel HTTPS: https://$DOMAIN"
         log_info "API Eksternal HTTP: http://$DOMAIN/external-api (perlu X-API-Key header)"
@@ -809,6 +922,9 @@ main() {
     
     # Check prerequisites
     check_root
+    
+    # Choose installation type
+    choose_installation_type
     
     # Interactive domain input
     get_domain

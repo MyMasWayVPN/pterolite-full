@@ -40,23 +40,41 @@ check_root() {
     fi
 }
 
-# Get domain from nginx config or environment
-get_domain() {
-    if [[ -n "$PTEROLITE_DOMAIN" ]]; then
-        DOMAIN="$PTEROLITE_DOMAIN"
-        log_info "Using domain from environment: $DOMAIN"
-    elif [[ -f "/etc/nginx/sites-available/pterolite.conf" ]]; then
+# Detect existing installation mode and get domain
+get_existing_installation_info() {
+    # Check if nginx config exists
+    if [[ -f "/etc/nginx/sites-available/pterolite.conf" ]]; then
         DOMAIN=$(grep "server_name" "/etc/nginx/sites-available/pterolite.conf" | head -1 | awk '{print $2}' | sed 's/;//')
-        if [[ -n "$DOMAIN" ]]; then
-            log_info "Found domain from nginx config: $DOMAIN"
+        if [[ -n "$DOMAIN" && "$DOMAIN" != "localhost" && "$DOMAIN" != "_" ]]; then
+            INSTALLATION_MODE="domain"
+            log_info "Found existing domain installation: $DOMAIN"
         else
-            log_error "Could not extract domain from nginx config"
-            exit 1
+            INSTALLATION_MODE="localhost"
+            DOMAIN="localhost"
+            log_info "Found existing localhost installation"
+        fi
+    elif [[ -f "$INSTALL_DIR/public/index.html" ]]; then
+        # Frontend in backend directory indicates localhost mode
+        INSTALLATION_MODE="localhost"
+        DOMAIN="localhost"
+        log_info "Detected existing localhost mode installation (frontend in backend directory)"
+    elif [[ -f "$WEB_ROOT/index.html" ]]; then
+        # Frontend in web root but no nginx config - assume domain mode
+        INSTALLATION_MODE="domain"
+        if [[ -n "$PTEROLITE_DOMAIN" ]]; then
+            DOMAIN="$PTEROLITE_DOMAIN"
+            log_info "Using domain from environment: $DOMAIN"
+        else
+            log_warn "Found frontend in web root but no nginx configuration"
+            read -p "Enter your domain name: " DOMAIN
         fi
     else
-        log_error "No domain found. Please set PTEROLITE_DOMAIN environment variable or ensure nginx config exists"
+        log_error "Could not detect existing installation"
         exit 1
     fi
+    
+    log_info "Installation mode: $INSTALLATION_MODE"
+    log_info "Domain: $DOMAIN"
 }
 
 # Detect installation type
@@ -180,6 +198,8 @@ update_application() {
     chown -R root:root "$INSTALL_DIR"
     chmod -R 755 "$INSTALL_DIR"
     chmod 644 "$INSTALL_DIR"/*.js "$INSTALL_DIR"/*.json 2>/dev/null || true
+    
+    log_info "Backend updated with Cloudflare Tunnel support"
 }
 
 # Build and deploy frontend
@@ -193,16 +213,30 @@ update_frontend() {
         npm install
         npm run build
         
-        # Deploy to web root
-        mkdir -p "$WEB_ROOT"
-        rm -rf "$WEB_ROOT"/*
-        cp -r dist/* "$WEB_ROOT/"
-        
-        # Set proper permissions
-        chown -R www-data:www-data "$WEB_ROOT"
-        chmod -R 755 "$WEB_ROOT"
-        
-        log_info "Frontend built and deployed from local directory"
+        if [[ "$INSTALLATION_MODE" == "localhost" ]]; then
+            # For localhost mode, deploy to backend directory
+            log_info "Deploying frontend to backend directory for direct serving..."
+            mkdir -p "$INSTALL_DIR/public"
+            rm -rf "$INSTALL_DIR/public"/*
+            cp -r dist/* "$INSTALL_DIR/public/"
+            
+            # Set proper permissions
+            chown -R root:root "$INSTALL_DIR/public"
+            chmod -R 755 "$INSTALL_DIR/public"
+            
+            log_info "Frontend deployed to backend public directory"
+        else
+            # For domain mode, deploy to web root
+            mkdir -p "$WEB_ROOT"
+            rm -rf "$WEB_ROOT"/*
+            cp -r dist/* "$WEB_ROOT/"
+            
+            # Set proper permissions
+            chown -R www-data:www-data "$WEB_ROOT"
+            chmod -R 755 "$WEB_ROOT"
+            
+            log_info "Frontend built and deployed from local directory"
+        fi
     else
         log_warn "Frontend directory not found in script location"
         log_info "Downloading and building frontend from GitHub..."
@@ -215,16 +249,30 @@ update_frontend() {
             npm install
             npm run build
             
-            # Deploy to web root
-            mkdir -p "$WEB_ROOT"
-            rm -rf "$WEB_ROOT"/*
-            cp -r dist/* "$WEB_ROOT/"
-            
-            # Set proper permissions
-            chown -R www-data:www-data "$WEB_ROOT"
-            chmod -R 755 "$WEB_ROOT"
-            
-            log_info "Frontend downloaded, built and deployed"
+            if [[ "$INSTALLATION_MODE" == "localhost" ]]; then
+                # For localhost mode, deploy to backend directory
+                log_info "Deploying frontend to backend directory for direct serving..."
+                mkdir -p "$INSTALL_DIR/public"
+                rm -rf "$INSTALL_DIR/public"/*
+                cp -r dist/* "$INSTALL_DIR/public/"
+                
+                # Set proper permissions
+                chown -R root:root "$INSTALL_DIR/public"
+                chmod -R 755 "$INSTALL_DIR/public"
+                
+                log_info "Frontend deployed to backend public directory"
+            else
+                # For domain mode, deploy to web root
+                mkdir -p "$WEB_ROOT"
+                rm -rf "$WEB_ROOT"/*
+                cp -r dist/* "$WEB_ROOT/"
+                
+                # Set proper permissions
+                chown -R www-data:www-data "$WEB_ROOT"
+                chmod -R 755 "$WEB_ROOT"
+                
+                log_info "Frontend downloaded, built and deployed"
+            fi
         else
             log_error "Failed to download frontend files from GitHub"
             exit 1
@@ -319,9 +367,39 @@ check_ssl_status() {
     fi
 }
 
-# Update nginx configuration
-update_nginx_config() {
-    log_step "Updating nginx configuration..."
+# Function to add tunnel endpoints to nginx config
+update_nginx_tunnel_config() {
+    log_step "Adding Cloudflare Tunnel endpoints to nginx configuration..."
+    
+    # Check if tunnels endpoint already exists
+    if grep -q "location /tunnels" /etc/nginx/sites-available/pterolite.conf 2>/dev/null; then
+        log_info "Tunnel endpoints already exist in nginx configuration"
+        return 0
+    fi
+    
+    # Backup current nginx config
+    cp /etc/nginx/sites-available/pterolite.conf /etc/nginx/sites-available/pterolite.conf.backup-$(date +%s) 2>/dev/null || true
+    
+    # Add tunnel endpoints after files location block
+    sed -i '/location \/files {/,/}/a\\n    # Cloudflare Tunnel management endpoints\n    location /tunnels {\n        proxy_pass http://127.0.0.1:8088/tunnels;\n        proxy_http_version 1.1;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection '\''upgrade'\'';\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n        proxy_cache_bypass $http_upgrade;\n    }' /etc/nginx/sites-available/pterolite.conf
+    
+    # Test nginx configuration
+    if nginx -t; then
+        log_info "Tunnel endpoints added successfully"
+        systemctl reload nginx
+    else
+        log_error "Failed to add tunnel endpoints, restoring backup"
+        cp /etc/nginx/sites-available/pterolite.conf.backup-$(date +%s) /etc/nginx/sites-available/pterolite.conf 2>/dev/null || true
+        return 1
+    fi
+}
+
+# Configure nginx for domain mode
+configure_nginx_domain() {
+    log_step "Configuring nginx for domain mode..."
+    
+    # Check SSL status first
+    check_ssl_status
     
     # Create updated nginx configuration without HTTPS redirect
     if [[ "$SSL_STATUS" == "valid" ]]; then
@@ -379,7 +457,7 @@ server {
         client_max_body_size 100M;
     }
 
-    # Cloudflare Tunnel management endpoints\
+    # Cloudflare Tunnel management endpoints
     location /tunnels {
         proxy_pass http://127.0.0.1:8088/tunnels;
         proxy_http_version 1.1;
@@ -792,6 +870,57 @@ EOF
     log_info "Nginx configuration updated successfully"
 }
 
+# Configure for localhost mode (skip nginx, use direct port access)
+configure_nginx_localhost() {
+    log_step "Configuring localhost mode (direct port access)..."
+    
+    # For localhost mode, we skip nginx configuration
+    # Users will access directly via http://localhost:8088
+    log_info "Localhost mode selected - skipping nginx configuration"
+    log_info "Application will be accessible directly on port 8088"
+    
+    # Disable nginx site to avoid conflicts
+    rm -f /etc/nginx/sites-enabled/pterolite.conf
+    rm -f /etc/nginx/sites-available/pterolite.conf
+    
+    # Reload nginx to remove any existing configuration
+    if systemctl is-active --quiet nginx; then
+        systemctl reload nginx
+        log_info "Nginx configuration cleared for localhost mode"
+    fi
+}
+
+# Update nginx configuration
+update_nginx_config() {
+    if [[ "$INSTALLATION_MODE" == "localhost" ]]; then
+        configure_nginx_localhost
+    else
+        configure_nginx_domain
+        
+        # Enable site
+        ln -sf /etc/nginx/sites-available/pterolite.conf /etc/nginx/sites-enabled/
+        
+        # Remove default site if exists
+        rm -f /etc/nginx/sites-enabled/default
+        
+        # Test nginx configuration
+        log_info "Testing nginx configuration..."
+        if nginx -t; then
+            log_info "Nginx configuration is valid"
+            systemctl reload nginx
+        else
+            log_error "Nginx configuration test failed"
+            log_error "Restoring backup nginx configuration..."
+            if [[ -f "$BACKUP_DIR/nginx/pterolite.conf" ]]; then
+                cp "$BACKUP_DIR/nginx/pterolite.conf" /etc/nginx/sites-available/pterolite.conf
+                nginx -t && systemctl reload nginx
+                log_warn "Backup nginx configuration restored"
+            fi
+            exit 1
+        fi
+    fi
+}
+
 # Fix or install SSL certificate
 fix_ssl_certificate() {
     log_step "Fixing SSL certificate..."
@@ -948,6 +1077,9 @@ show_summary() {
     log_info "• Enhanced file manager with container restrictions"
     log_info "• Console with automatic container working directory"
     log_info "• Improved security with path validation"
+    log_info "• Cloudflare Tunnel management (Quick, Named, Token)"
+    log_info "• Real-time tunnel logs and monitoring"
+    log_info "• Automatic cloudflared installation"
     
     echo ""
     log_info "🔧 MANAGEMENT COMMANDS:"
@@ -1016,6 +1148,7 @@ main() {
     migrate_to_systemd
     check_ssl_status
     update_nginx_config
+    update_nginx_tunnel_config
     fix_ssl_certificate
     start_services
     

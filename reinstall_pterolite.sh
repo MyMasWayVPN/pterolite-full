@@ -41,20 +41,71 @@ check_root() {
     fi
 }
 
-# Get domain from existing installation
-get_existing_domain() {
+# Detect existing installation mode and get domain
+get_existing_installation_info() {
+    # Check if nginx config exists
     if [[ -f "/etc/nginx/sites-available/pterolite.conf" ]]; then
         DOMAIN=$(grep -oP 'server_name \K[^;]+' /etc/nginx/sites-available/pterolite.conf | head -1)
-        if [[ -n "$DOMAIN" ]]; then
-            log_info "Found existing domain: $DOMAIN"
+        if [[ -n "$DOMAIN" && "$DOMAIN" != "localhost" && "$DOMAIN" != "_" ]]; then
+            INSTALLATION_MODE="domain"
+            log_info "Found existing domain installation: $DOMAIN"
         else
-            log_warn "Could not detect domain from existing config"
-            read -p "Enter your domain name: " DOMAIN
+            INSTALLATION_MODE="localhost"
+            DOMAIN="localhost"
+            log_info "Found existing localhost installation"
         fi
+    elif [[ -f "$INSTALL_DIR/public/index.html" ]]; then
+        # Frontend in backend directory indicates localhost mode
+        INSTALLATION_MODE="localhost"
+        DOMAIN="localhost"
+        log_info "Detected existing localhost mode installation (frontend in backend directory)"
+    elif [[ -f "$WEB_ROOT/index.html" ]]; then
+        # Frontend in web root but no nginx config - ask user
+        log_warn "Found frontend in web root but no nginx configuration"
+        echo "Choose reinstall mode:"
+        echo "1) Reinstall with Domain"
+        echo "2) Reinstall for Localhost Only"
+        read -p "Choose mode (1-2): " mode_choice
+        
+        case $mode_choice in
+            1)
+                INSTALLATION_MODE="domain"
+                read -p "Enter your domain name: " DOMAIN
+                ;;
+            2)
+                INSTALLATION_MODE="localhost"
+                DOMAIN="localhost"
+                ;;
+            *)
+                log_error "Invalid choice"
+                exit 1
+                ;;
+        esac
     else
-        log_warn "No existing nginx configuration found"
-        read -p "Enter your domain name: " DOMAIN
+        log_warn "Could not detect existing installation mode"
+        echo "Choose reinstall mode:"
+        echo "1) Reinstall with Domain"
+        echo "2) Reinstall for Localhost Only"
+        read -p "Choose mode (1-2): " mode_choice
+        
+        case $mode_choice in
+            1)
+                INSTALLATION_MODE="domain"
+                read -p "Enter your domain name: " DOMAIN
+                ;;
+            2)
+                INSTALLATION_MODE="localhost"
+                DOMAIN="localhost"
+                ;;
+            *)
+                log_error "Invalid choice"
+                exit 1
+                ;;
+        esac
     fi
+    
+    log_info "Installation mode: $INSTALLATION_MODE"
+    log_info "Domain: $DOMAIN"
 }
 
 # Backup existing installation
@@ -228,17 +279,31 @@ update_frontend() {
         exit 1
     fi
     
-    # Deploy to web root
-    log_info "Deploying frontend to $WEB_ROOT..."
-    mkdir -p "$WEB_ROOT"
-    rm -rf "$WEB_ROOT"/*
-    cp -r dist/* "$WEB_ROOT/"
-    
-    # Set proper permissions
-    chown -R www-data:www-data "$WEB_ROOT"
-    chmod -R 755 "$WEB_ROOT"
-    
-    log_info "Frontend updated successfully"
+    if [[ "$INSTALLATION_MODE" == "localhost" ]]; then
+        # For localhost mode, deploy to backend directory
+        log_info "Deploying frontend to backend directory for direct serving..."
+        mkdir -p "$INSTALL_DIR/public"
+        rm -rf "$INSTALL_DIR/public"/*
+        cp -r dist/* "$INSTALL_DIR/public/"
+        
+        # Set proper permissions
+        chown -R root:root "$INSTALL_DIR/public"
+        chmod -R 755 "$INSTALL_DIR/public"
+        
+        log_info "Frontend deployed to backend public directory"
+    else
+        # For domain mode, deploy to web root
+        log_info "Deploying frontend to $WEB_ROOT..."
+        mkdir -p "$WEB_ROOT"
+        rm -rf "$WEB_ROOT"/*
+        cp -r dist/* "$WEB_ROOT/"
+        
+        # Set proper permissions
+        chown -R www-data:www-data "$WEB_ROOT"
+        chmod -R 755 "$WEB_ROOT"
+        
+        log_info "Frontend updated successfully"
+    fi
 }
 
 # Check SSL certificate status
@@ -317,17 +382,42 @@ setup_ssl_certificate() {
     return 0
 }
 
-# Update nginx configuration with SSL support
-update_nginx_config() {
-    log_step "Updating nginx configuration..."
+# Update nginx tunnel configuration
+update_nginx_tunnel_config() {
+    log_step "Adding Cloudflare Tunnel endpoints to nginx configuration..."
     
-    # Get API key from .env file
-    if [[ -f "$INSTALL_DIR/.env" ]]; then
-        API_KEY=$(grep "API_KEY=" "$INSTALL_DIR/.env" | cut -d'=' -f2)
-    else
-        API_KEY="supersecretkey"
-        log_warn "Could not find API key, using default"
+    # Check if tunnel endpoint already exists
+    if grep -q "location /tunnels" /etc/nginx/sites-available/pterolite.conf; then
+        log_info "Tunnel endpoint already exists in nginx configuration"
+        return 0
     fi
+    
+    # Backup existing configuration
+    cp /etc/nginx/sites-available/pterolite.conf /etc/nginx/sites-available/pterolite.conf.backup.tunnel.$(date +%Y%m%d_%H%M%S)
+    
+    # Add tunnel endpoint before the external-api location block
+    sed -i '/# API eksternal dengan authentication/i \
+    # Cloudflare Tunnel management endpoints\
+    location /tunnels {\
+        proxy_pass http://127.0.0.1:8088/tunnels;\
+        proxy_http_version 1.1;\
+        proxy_set_header Upgrade $http_upgrade;\
+        proxy_set_header Connection '\''upgrade'\'';\
+        proxy_set_header Host $host;\
+        proxy_set_header X-Real-IP $remote_addr;\
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\
+        proxy_set_header X-Forwarded-Proto $scheme;\
+        proxy_cache_bypass $http_upgrade;\
+    }\
+\
+' /etc/nginx/sites-available/pterolite.conf
+
+    log_info "Tunnel endpoint added to nginx configuration"
+}
+
+# Configure nginx for domain mode
+configure_nginx_domain() {
+    log_step "Configuring nginx for domain mode..."
     
     # Check SSL status first
     check_ssl_status
@@ -763,30 +853,61 @@ server {
 EOF
     fi
     
-    # Test nginx configuration
-    log_info "Testing nginx configuration..."
-    if nginx -t; then
-        log_info "Nginx configuration is valid"
-        systemctl reload nginx
-        log_info "Nginx reloaded successfully"
-    else
-        log_error "Nginx configuration test failed"
-        log_info "Restoring backup configuration..."
-        if [[ -f "$BACKUP_DIR/nginx-pterolite.conf.backup" ]]; then
-            cp "$BACKUP_DIR/nginx-pterolite.conf.backup" "/etc/nginx/sites-available/pterolite.conf"
-            nginx -t && systemctl reload nginx
-        fi
-        exit 1
-    fi
+    log_info "Nginx configured for domain mode"
+}
+
+# Configure for localhost mode (skip nginx, use direct port access)
+configure_nginx_localhost() {
+    log_step "Configuring localhost mode (direct port access)..."
     
-    # Try to setup SSL certificate if not already valid
-    if [[ "$SSL_STATUS" != "valid" ]]; then
-        log_info "Attempting to setup SSL certificate..."
-        if setup_ssl_certificate; then
-            log_info "SSL setup successful, updating nginx configuration..."
-            update_nginx_config  # Recursive call to update config with SSL
+    # For localhost mode, we skip nginx configuration
+    # Users will access directly via http://localhost:8088
+    log_info "Localhost mode selected - skipping nginx configuration"
+    log_info "Application will be accessible directly on port 8088"
+    
+    # Disable nginx site to avoid conflicts
+    rm -f /etc/nginx/sites-enabled/pterolite.conf
+    rm -f /etc/nginx/sites-available/pterolite.conf
+    
+    # Reload nginx to remove any existing configuration
+    if systemctl is-active --quiet nginx; then
+        systemctl reload nginx
+        log_info "Nginx configuration cleared for localhost mode"
+    fi
+}
+
+# Update nginx configuration with SSL support
+update_nginx_config() {
+    if [[ "$INSTALLATION_MODE" == "localhost" ]]; then
+        configure_nginx_localhost
+    else
+        configure_nginx_domain
+        
+        # Test nginx configuration
+        log_info "Testing nginx configuration..."
+        if nginx -t; then
+            log_info "Nginx configuration is valid"
+            systemctl reload nginx
+            log_info "Nginx reloaded successfully"
         else
-            log_warn "SSL setup failed, continuing with HTTP configuration"
+            log_error "Nginx configuration test failed"
+            log_info "Restoring backup configuration..."
+            if [[ -f "$BACKUP_DIR/nginx-pterolite.conf.backup" ]]; then
+                cp "$BACKUP_DIR/nginx-pterolite.conf.backup" "/etc/nginx/sites-available/pterolite.conf"
+                nginx -t && systemctl reload nginx
+            fi
+            exit 1
+        fi
+        
+        # Try to setup SSL certificate if not already valid
+        if [[ "$SSL_STATUS" != "valid" ]]; then
+            log_info "Attempting to setup SSL certificate..."
+            if setup_ssl_certificate; then
+                log_info "SSL setup successful, updating nginx configuration..."
+                configure_nginx_domain  # Update config with SSL
+            else
+                log_warn "SSL setup failed, continuing with HTTP configuration"
+            fi
         fi
     fi
 }
@@ -1158,7 +1279,7 @@ main() {
     
     # Validate inputs
     check_root
-    get_existing_domain
+    get_existing_installation_info
     
     # Confirm before proceeding
     read -p "Do you want to proceed with the reinstall? (y/N): " -n 1 -r
@@ -1175,6 +1296,7 @@ main() {
     update_backend
     update_frontend
     update_nginx_config
+    update_nginx_tunnel_config
     start_services
     
     # Verify and show results
