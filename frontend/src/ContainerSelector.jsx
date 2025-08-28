@@ -344,13 +344,10 @@ const ContainerSelector = ({ onContainerSelect, selectedContainer }) => {
         {selectedContainer && (
           <div className="text-center">
             <button
-              onClick={() => {
-                // Hide container selector and proceed to main app
-                window.dispatchEvent(new CustomEvent('containerSelected', { detail: selectedContainer }));
-              }}
-              className="px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-lg"
+              onClick={() => onContainerSelect(selectedContainer)}
+              className="px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-lg transition-colors"
             >
-              Continue with Selected Container →
+              ✅ Continue with Selected Container →
             </button>
           </div>
         )}
