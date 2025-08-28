@@ -15,15 +15,17 @@ export default function Login({ onLogin }) {
     setError('');
 
     try {
-      const response = await api.post('/auth/login', credentials);
+      // Configure axios to include credentials (cookies)
+      const response = await api.post('/auth/login', credentials, {
+        withCredentials: true
+      });
       
       if (response.data.success) {
-        // Store token in localStorage
-        localStorage.setItem('authToken', response.data.token);
+        // Store user info in localStorage (token is in httpOnly cookie)
         localStorage.setItem('user', JSON.stringify(response.data.user));
         
-        // Set token in api headers for future requests
-        api.defaults.headers.common['Authorization'] = `Bearer ${response.data.token}`;
+        // Configure api to always send cookies
+        api.defaults.withCredentials = true;
         
         // Call onLogin callback
         onLogin(response.data.user, response.data.token);
@@ -122,6 +124,9 @@ export default function Login({ onLogin }) {
         <div className="text-center">
           <p className="text-xs text-gray-500">
             PteroLite v2.0 - Secure Container Management
+          </p>
+          <p className="text-xs text-gray-400 mt-2">
+            Default: admin / admin123
           </p>
         </div>
       </div>

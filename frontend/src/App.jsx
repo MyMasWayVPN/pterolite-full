@@ -23,33 +23,35 @@ export default function App() {
   // Check authentication status on app load
   useEffect(() => {
     const checkAuth = async () => {
-      const savedToken = localStorage.getItem('authToken');
       const savedUser = localStorage.getItem('user');
       
-      if (savedToken && savedUser) {
-        try {
-          // Set token in api headers
-          api.defaults.headers.common['Authorization'] = `Bearer ${savedToken}`;
+      try {
+        // Configure api to always send cookies
+        api.defaults.withCredentials = true;
+        
+        // Check authentication status via cookie
+        const response = await api.get('/auth/status');
+        
+        if (response.data.authenticated) {
+          setUser(response.data.user);
+          setAuthToken('cookie-based'); // We don't store actual token for cookie auth
           
-          // Verify token is still valid
-          const response = await api.get('/auth/status');
-          
-          if (response.data.authenticated) {
-            setAuthToken(savedToken);
-            setUser(JSON.parse(savedUser));
-          } else {
-            // Token is invalid, clear storage
-            localStorage.removeItem('authToken');
-            localStorage.removeItem('user');
-            delete api.defaults.headers.common['Authorization'];
+          // Update saved user if different
+          if (savedUser !== JSON.stringify(response.data.user)) {
+            localStorage.setItem('user', JSON.stringify(response.data.user));
           }
-        } catch (error) {
-          console.error('Auth check failed:', error);
-          // Clear invalid token
-          localStorage.removeItem('authToken');
+        } else {
+          // Not authenticated, clear storage
           localStorage.removeItem('user');
-          delete api.defaults.headers.common['Authorization'];
+          setUser(null);
+          setAuthToken(null);
         }
+      } catch (error) {
+        console.error('Auth check failed:', error);
+        // Clear invalid session
+        localStorage.removeItem('user');
+        setUser(null);
+        setAuthToken(null);
       }
       
       setAuthLoading(false);
@@ -61,22 +63,20 @@ export default function App() {
   // Handle login
   const handleLogin = (userData, token) => {
     setUser(userData);
-    setAuthToken(token);
+    setAuthToken(token || 'cookie-based');
   };
 
   // Handle logout
   const handleLogout = async () => {
     try {
-      await api.post('/auth/logout');
+      await api.post('/auth/logout', {}, { withCredentials: true });
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
       // Clear local storage and state
-      localStorage.removeItem('authToken');
       localStorage.removeItem('user');
       localStorage.removeItem('selectedContainer');
       localStorage.removeItem('activeTab');
-      delete api.defaults.headers.common['Authorization'];
       
       setUser(null);
       setAuthToken(null);
