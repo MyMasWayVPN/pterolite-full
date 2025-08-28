@@ -438,7 +438,7 @@ app.post("/containers", webPanelAuth, async (req, res) => {
       console.warn(`Failed to create container folder: ${folderError.message}`);
     }
     
-    // Create container configuration with the REQUESTED image (not a fallback)
+    // Create container configuration with the REQUESTED image (without bind mounts)
     const containerConfig = {
       Image: image, // Use the actual requested image
       name: name,
@@ -448,17 +448,7 @@ app.post("/containers", webPanelAuth, async (req, res) => {
       AttachStderr: true,
       OpenStdin: true,
       WorkingDir: `/workspace`,
-      Cmd: ['/bin/bash'], // Keep container running
-      HostConfig: {
-        // Auto-restart policy - container will restart automatically after reboot
-        RestartPolicy: {
-          Name: 'unless-stopped' // Changed from 'always' to allow manual stops
-        },
-        // Bind mount for persistent storage - DIPERLUKAN agar file tidak hilang saat restart
-        Binds: [
-          `${containerFolder}:/workspace:rw` // Mount container folder ke /workspace
-        ]
-      }
+      Cmd: ['/bin/bash'] // Keep container running
     };
     
     // Add port mapping if provided
@@ -677,7 +667,7 @@ app.post("/api/containers", requireAuth, async (req, res) => {
       console.warn(`Failed to create container folder: ${folderError.message}`);
     }
     
-    // Create container configuration with the REQUESTED image (not a fallback)
+    // Create container configuration with the REQUESTED image (without bind mounts)
     const containerConfig = {
       Image: image, // Use the actual requested image
       name: name,
@@ -686,19 +676,8 @@ app.post("/api/containers", requireAuth, async (req, res) => {
       AttachStdout: true,
       AttachStderr: true,
       OpenStdin: true,
-      WorkingDir: `/tmp/pterolite-containers/${name}`,
-      Cmd: ['/bin/bash'], // Keep container running
-      HostConfig: {
-        // Auto-restart policy - container will restart automatically after reboot
-        RestartPolicy: {
-          Name: 'always'
-        },
-        // Bind mount for persistent storage
-        Binds: [
-          `${containerFolder}:/tmp/pterolite-containers/${name}:rw`,
-          `${containerFolder}:/workspace:rw` // Additional workspace mount
-        ]
-      }
+      WorkingDir: `/workspace`,
+      Cmd: ['/bin/bash'] // Keep container running
     };
     
     // Add port mapping if provided
