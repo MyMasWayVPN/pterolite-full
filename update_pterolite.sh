@@ -191,6 +191,11 @@ update_application() {
     cd "$INSTALL_DIR"
     if [[ -f "package.json" ]]; then
         npm install --production
+        
+        # Install additional dependencies (including new authentication dependencies)
+        log_info "Installing additional dependencies..."
+        npm install multer archiver unzipper uuid jsonwebtoken cookie-parser
+        
         log_info "Dependencies updated"
     fi
     

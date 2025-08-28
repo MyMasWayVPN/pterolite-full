@@ -8,6 +8,8 @@ const { exec, spawn } = require("child_process");
 const archiver = require("archiver");
 const unzipper = require("unzipper");
 const { v4: uuidv4 } = require("uuid");
+const crypto = require("crypto");
+const jwt = require("jsonwebtoken");
 
 const docker = new Docker({ socketPath: "/var/run/docker.sock" });
 const app = express();
@@ -31,7 +33,41 @@ const upload = multer({ storage: storage });
 app.use(bodyParser.json());
 app.use(express.static('public'));
 
+// Cookie parser middleware (untuk mendukung cookie-based authentication)
+const cookieParser = require('cookie-parser');
+app.use(cookieParser());
+
 const API_KEY = process.env.API_KEY || "supersecretkey";
+const JWT_SECRET = process.env.JWT_SECRET || "defaultjwtsecret";
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
+const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH || "";
+
+// ===== AUTHENTICATION FUNCTIONS =====
+
+// Hash password function
+function hashPassword(password) {
+  return crypto.createHmac('sha256', JWT_SECRET).update(password).digest('base64');
+}
+
+// Verify password function
+function verifyPassword(password, hash) {
+  const computedHash = hashPassword(password);
+  return computedHash === hash;
+}
+
+// Generate JWT token
+function generateToken(username) {
+  return jwt.sign({ username }, JWT_SECRET, { expiresIn: '24h' });
+}
+
+// Verify JWT token
+function verifyToken(token) {
+  try {
+    return jwt.verify(token, JWT_SECRET);
+  } catch (error) {
+    return null;
+  }
+}
 
 // ===== PROCESS MANAGEMENT FOR MULTI-SCRIPT RUNNING =====
 
@@ -240,15 +276,100 @@ const requireAuth = (req, res, next) => {
   next();
 };
 
-// Middleware untuk web panel (tanpa auth requirement)
+// Middleware untuk web panel (dengan JWT authentication)
 const webPanelAuth = (req, res, next) => {
-  // Skip authentication untuk web panel
+  // Skip authentication untuk login endpoint
+  if (req.path === '/auth/login' || req.path === '/auth/status') {
+    return next();
+  }
+  
+  const token = req.headers.authorization?.replace('Bearer ', '') || req.cookies?.token;
+  
+  if (!token) {
+    return res.status(401).json({ error: "Authentication required" });
+  }
+  
+  const decoded = verifyToken(token);
+  if (!decoded) {
+    return res.status(401).json({ error: "Invalid or expired token" });
+  }
+  
+  req.user = decoded;
   next();
 };
 
+// ===== AUTHENTICATION ENDPOINTS =====
+
+// Login endpoint
+app.post("/auth/login", (req, res) => {
+  const { username, password } = req.body;
+  
+  if (!username || !password) {
+    return res.status(400).json({ error: "Username and password required" });
+  }
+  
+  // Check if admin credentials are configured
+  if (!ADMIN_USERNAME || !ADMIN_PASSWORD_HASH) {
+    return res.status(500).json({ error: "Admin credentials not configured" });
+  }
+  
+  // Verify credentials
+  if (username === ADMIN_USERNAME && verifyPassword(password, ADMIN_PASSWORD_HASH)) {
+    const token = generateToken(username);
+    
+    res.json({
+      success: true,
+      message: "Login successful",
+      token: token,
+      user: {
+        username: username,
+        role: "admin"
+      }
+    });
+  } else {
+    res.status(401).json({ error: "Invalid username or password" });
+  }
+});
+
+// Logout endpoint (client-side token removal)
+app.post("/auth/logout", (req, res) => {
+  res.json({
+    success: true,
+    message: "Logout successful"
+  });
+});
+
+// Check authentication status
+app.get("/auth/status", (req, res) => {
+  const token = req.headers.authorization?.replace('Bearer ', '') || req.cookies?.token;
+  
+  if (!token) {
+    return res.json({
+      authenticated: false,
+      user: null
+    });
+  }
+  
+  const decoded = verifyToken(token);
+  if (!decoded) {
+    return res.json({
+      authenticated: false,
+      user: null
+    });
+  }
+  
+  res.json({
+    authenticated: true,
+    user: {
+      username: decoded.username,
+      role: "admin"
+    }
+  });
+});
+
 // ===== CONTAINER MANAGEMENT ENDPOINTS =====
 
-// Endpoint untuk web panel (tanpa authentication)
+// Endpoint untuk web panel (dengan JWT authentication)
 app.get("/containers", webPanelAuth, async (req, res) => {
   const containers = await docker.listContainers({ all: true });
   res.json(containers);
@@ -258,26 +379,16 @@ app.post("/containers", webPanelAuth, async (req, res) => {
   try {
     const { name, image, cmd, port, description } = req.body;
     
-    // Use a base image that's more likely to exist (ubuntu or alpine)
-    let baseImage = 'ubuntu:latest';
-    
-    // If the requested image is a common base image, use it directly
-    const commonImages = [
-      'ubuntu', 'alpine', 'debian', 'centos', 'node', 'python', 'nginx'
-    ];
-    
-    const isCommonImage = commonImages.some(common => 
-      image.toLowerCase().includes(common.split(':')[0])
-    );
-    
-    if (isCommonImage) {
-      baseImage = image;
+    if (!image) {
+      return res.status(400).json({ error: "Docker image is required" });
     }
     
-    // First, try to pull the base image
+    console.log(`Creating container with requested image: ${image}`);
+    
+    // Always try to pull the requested image first to ensure we get the latest version
     try {
-      console.log(`Pulling base image: ${baseImage}`);
-      const stream = await docker.pull(baseImage);
+      console.log(`Pulling requested image: ${image}`);
+      const stream = await docker.pull(image);
       
       // Wait for pull to complete
       await new Promise((resolve, reject) => {
@@ -287,10 +398,31 @@ app.post("/containers", webPanelAuth, async (req, res) => {
         });
       });
       
-      console.log(`Base image ${baseImage} pulled successfully`);
+      console.log(`Image ${image} pulled successfully`);
     } catch (pullError) {
-      console.log(`Pull failed for ${baseImage}:`, pullError.message);
-      // Continue anyway - image might already exist locally
+      console.log(`Pull failed for ${image}:`, pullError.message);
+      
+      // Check if image exists locally
+      try {
+        const localImages = await docker.listImages();
+        const imageExists = localImages.some(img => 
+          img.RepoTags && img.RepoTags.some(tag => tag === image)
+        );
+        
+        if (!imageExists) {
+          // Image doesn't exist locally and pull failed
+          return res.status(400).json({ 
+            error: `Failed to pull image '${image}' and image not found locally. Please check the image name and try again.`,
+            pullError: pullError.message
+          });
+        }
+        
+        console.log(`Using existing local image: ${image}`);
+      } catch (listError) {
+        return res.status(500).json({ 
+          error: `Failed to check local images: ${listError.message}` 
+        });
+      }
     }
     
     // Create container folder on host system
@@ -304,9 +436,9 @@ app.post("/containers", webPanelAuth, async (req, res) => {
       console.warn(`Failed to create container folder: ${folderError.message}`);
     }
     
-    // Create container configuration
+    // Create container configuration with the REQUESTED image (not a fallback)
     const containerConfig = {
-      Image: baseImage,
+      Image: image, // Use the actual requested image
       name: name,
       Tty: true,
       AttachStdin: true,
@@ -314,54 +446,47 @@ app.post("/containers", webPanelAuth, async (req, res) => {
       AttachStderr: true,
       OpenStdin: true,
       WorkingDir: `/tmp/pterolite-containers/${name}`,
-      Cmd: ['/bin/bash'] // Keep container running
+      Cmd: ['/bin/bash'], // Keep container running
+      HostConfig: {
+        // Auto-restart policy - container will restart automatically after reboot
+        RestartPolicy: {
+          Name: 'always'
+        },
+        // Bind mount for persistent storage
+        Binds: [
+          `${containerFolder}:/tmp/pterolite-containers/${name}:rw`,
+          `${containerFolder}:/workspace:rw` // Additional workspace mount
+        ]
+      }
     };
     
     // Add port mapping if provided
     if (port) {
       containerConfig.ExposedPorts = {};
       containerConfig.ExposedPorts[`${port}/tcp`] = {};
-      containerConfig.HostConfig = {
-        PortBindings: {}
-      };
+      
+      if (!containerConfig.HostConfig.PortBindings) {
+        containerConfig.HostConfig.PortBindings = {};
+      }
       containerConfig.HostConfig.PortBindings[`${port}/tcp`] = [{ HostPort: port.toString() }];
     }
     
-    // Create the container
+    // Create the container with the requested image
     const container = await docker.createContainer(containerConfig);
     
     // Start the container
     await container.start();
     
-    // If the requested image is different from base image, 
-    // prepare commands to install it inside the container
-    let installCommands = [];
-    
-    if (!isCommonImage && image !== baseImage) {
-      // Add commands to install Docker inside the container and pull the requested image
-      installCommands = [
-        'apt-get update',
-        'apt-get install -y docker.io',
-        'service docker start',
-        `docker pull ${image}`,
-        `echo "Image ${image} pulled successfully inside container"`
-      ];
-    }
-    
-    console.log(`Container ${name} created and started successfully`);
+    console.log(`Container ${name} created and started successfully with image: ${image}`);
     
     res.json({ 
-      message: "Container created & started", 
+      message: "Container created & started with requested image", 
       id: container.id,
       name: name,
-      baseImage: baseImage,
-      requestedImage: image,
+      image: image, // Return the actual image used
       port: port,
       description: description,
-      installCommands: installCommands,
-      note: !isCommonImage && image !== baseImage ? 
-        `Container created with ${baseImage}. Run the provided install commands to get ${image}` : 
-        `Container created with requested image ${image}`
+      note: `Container successfully created with requested image: ${image}`
     });
   } catch (err) {
     console.error("Container creation error:", err);
@@ -494,26 +619,16 @@ app.post("/api/containers", requireAuth, async (req, res) => {
   try {
     const { name, image, cmd, port, description } = req.body;
     
-    // Use a base image that's more likely to exist (ubuntu or alpine)
-    let baseImage = 'ubuntu:latest';
-    
-    // If the requested image is a common base image, use it directly
-    const commonImages = [
-      'ubuntu', 'alpine', 'debian', 'centos', 'node', 'python', 'nginx'
-    ];
-    
-    const isCommonImage = commonImages.some(common => 
-      image.toLowerCase().includes(common.split(':')[0])
-    );
-    
-    if (isCommonImage) {
-      baseImage = image;
+    if (!image) {
+      return res.status(400).json({ error: "Docker image is required" });
     }
     
-    // First, try to pull the base image
+    console.log(`Creating container with requested image: ${image}`);
+    
+    // Always try to pull the requested image first to ensure we get the latest version
     try {
-      console.log(`Pulling base image: ${baseImage}`);
-      const stream = await docker.pull(baseImage);
+      console.log(`Pulling requested image: ${image}`);
+      const stream = await docker.pull(image);
       
       // Wait for pull to complete
       await new Promise((resolve, reject) => {
@@ -523,10 +638,31 @@ app.post("/api/containers", requireAuth, async (req, res) => {
         });
       });
       
-      console.log(`Base image ${baseImage} pulled successfully`);
+      console.log(`Image ${image} pulled successfully`);
     } catch (pullError) {
-      console.log(`Pull failed for ${baseImage}:`, pullError.message);
-      // Continue anyway - image might already exist locally
+      console.log(`Pull failed for ${image}:`, pullError.message);
+      
+      // Check if image exists locally
+      try {
+        const localImages = await docker.listImages();
+        const imageExists = localImages.some(img => 
+          img.RepoTags && img.RepoTags.some(tag => tag === image)
+        );
+        
+        if (!imageExists) {
+          // Image doesn't exist locally and pull failed
+          return res.status(400).json({ 
+            error: `Failed to pull image '${image}' and image not found locally. Please check the image name and try again.`,
+            pullError: pullError.message
+          });
+        }
+        
+        console.log(`Using existing local image: ${image}`);
+      } catch (listError) {
+        return res.status(500).json({ 
+          error: `Failed to check local images: ${listError.message}` 
+        });
+      }
     }
     
     // Create container folder on host system
@@ -540,9 +676,9 @@ app.post("/api/containers", requireAuth, async (req, res) => {
       console.warn(`Failed to create container folder: ${folderError.message}`);
     }
     
-    // Create container configuration
+    // Create container configuration with the REQUESTED image (not a fallback)
     const containerConfig = {
-      Image: baseImage,
+      Image: image, // Use the actual requested image
       name: name,
       Tty: true,
       AttachStdin: true,
@@ -550,54 +686,47 @@ app.post("/api/containers", requireAuth, async (req, res) => {
       AttachStderr: true,
       OpenStdin: true,
       WorkingDir: `/tmp/pterolite-containers/${name}`,
-      Cmd: ['/bin/bash'] // Keep container running
+      Cmd: ['/bin/bash'], // Keep container running
+      HostConfig: {
+        // Auto-restart policy - container will restart automatically after reboot
+        RestartPolicy: {
+          Name: 'always'
+        },
+        // Bind mount for persistent storage
+        Binds: [
+          `${containerFolder}:/tmp/pterolite-containers/${name}:rw`,
+          `${containerFolder}:/workspace:rw` // Additional workspace mount
+        ]
+      }
     };
     
     // Add port mapping if provided
     if (port) {
       containerConfig.ExposedPorts = {};
       containerConfig.ExposedPorts[`${port}/tcp`] = {};
-      containerConfig.HostConfig = {
-        PortBindings: {}
-      };
+      
+      if (!containerConfig.HostConfig.PortBindings) {
+        containerConfig.HostConfig.PortBindings = {};
+      }
       containerConfig.HostConfig.PortBindings[`${port}/tcp`] = [{ HostPort: port.toString() }];
     }
     
-    // Create the container
+    // Create the container with the requested image
     const container = await docker.createContainer(containerConfig);
     
     // Start the container
     await container.start();
     
-    // If the requested image is different from base image, 
-    // prepare commands to install it inside the container
-    let installCommands = [];
-    
-    if (!isCommonImage && image !== baseImage) {
-      // Add commands to install Docker inside the container and pull the requested image
-      installCommands = [
-        'apt-get update',
-        'apt-get install -y docker.io',
-        'service docker start',
-        `docker pull ${image}`,
-        `echo "Image ${image} pulled successfully inside container"`
-      ];
-    }
-    
-    console.log(`Container ${name} created and started successfully`);
+    console.log(`Container ${name} created and started successfully with image: ${image}`);
     
     res.json({ 
-      message: "Container created & started", 
+      message: "Container created & started with requested image", 
       id: container.id,
       name: name,
-      baseImage: baseImage,
-      requestedImage: image,
+      image: image, // Return the actual image used
       port: port,
       description: description,
-      installCommands: installCommands,
-      note: !isCommonImage && image !== baseImage ? 
-        `Container created with ${baseImage}. Run the provided install commands to get ${image}` : 
-        `Container created with requested image ${image}`
+      note: `Container successfully created with requested image: ${image}`
     });
   } catch (err) {
     console.error("Container creation error:", err);

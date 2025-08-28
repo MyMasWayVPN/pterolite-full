@@ -226,9 +226,9 @@ update_backend() {
     log_info "Installing backend dependencies..."
     npm install
     
-    # Install additional dependencies
+    # Install additional dependencies (including new authentication dependencies)
     log_info "Installing additional dependencies..."
-    npm install multer archiver unzipper uuid
+    npm install multer archiver unzipper uuid jsonwebtoken cookie-parser
     
     # Preserve existing .env if it exists, otherwise create new one
     if [[ -f "$BACKUP_DIR/.env.backup" ]]; then

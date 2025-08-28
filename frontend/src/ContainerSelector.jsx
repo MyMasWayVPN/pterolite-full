@@ -8,7 +8,7 @@ const ContainerSelector = ({ onContainerSelect, selectedContainer }) => {
   const [isCreating, setIsCreating] = useState(false);
   const [createForm, setCreateForm] = useState({
     name: '',
-    image: 'docker.io/bionicc/nodejs-wabot:latest',
+    image: 'node:20',
     port: '',
     description: ''
   });
@@ -63,7 +63,7 @@ const ContainerSelector = ({ onContainerSelect, selectedContainer }) => {
       setShowCreateForm(false);
       setCreateForm({
         name: '',
-        image: 'docker.io/bionicc/nodejs-wabot:latest',
+        image: 'node:20',
         port: '3000',
         description: ''
       });
@@ -147,20 +147,38 @@ const ContainerSelector = ({ onContainerSelect, selectedContainer }) => {
   };
 
   const imageOptions = [
-    { value: 'docker.io/bionicc/nodejs-wabot:latest', label: '🟢 Stable (Recommended)', description: 'Stable Node.js runtime with WhatsApp Bot support' },
-    { value: 'docker.io/bionicc/nodejs-wabot:alpine', label: '🏔️ Node.js LTS (Alpine Linux)', description: 'Lightweight Alpine Linux with Node.js LTS' },
-    { value: 'docker.io/bionicc/nodejs-wabot:kali', label: '🐉 Node.js LTS (Kali Linux)', description: 'Kali Linux with Node.js LTS' },
-    { value: 'docker.io/bionicc/nodejs-wabot:23', label: '🚀 Node.js 23', description: 'Latest Node.js 23' },
-    { value: 'docker.io/bionicc/nodejs-wabot:22', label: '⚡ Node.js 22', description: 'Node.js 22' },
-    { value: 'docker.io/bionicc/nodejs-wabot:22-ubuntu', label: '🐧 Node.js 22 (Ubuntu)', description: 'Node.js 22 on Ubuntu' },
-    { value: 'docker.io/bionicc/nodejs-wabot:21', label: '🔥 Node.js 21', description: 'Node.js 21' },
-    { value: 'docker.io/bionicc/nodejs-wabot:20', label: '💎 Node.js 20', description: 'Node.js 20 LT' },
-    { value: 'docker.io/bionicc/nodejs-wabot:20-ubuntu', label: '🌟 Node.js 20 (Ubuntu)', description: 'Node.js 20 LTS on Ubuntu' },
-    { value: 'docker.io/bionicc/nodejs-wabot:19', label: '⭐ Node.js 19', description: 'Node.js 19' },
-    { value: 'docker.io/bionicc/nodejs-wabot:18', label: '✨ Node.js 18', description: 'Node.js 18 LTS' },
-    { value: 'docker.io/bionicc/nodejs-wabot:18-ubuntu', label: '🎯 Node.js 18 (Ubuntu)', description: 'Node.js 18 LTS on Ubuntu' },
-    { value: 'docker.io/bionicc/nodejs-wabot:17', label: '🎪 Node.js 17', description: 'Node.js 17' },
-    { value: 'docker.io/bionicc/nodejs-wabot:16', label: '🎨 Node.js 16', description: 'Node.js 16 LTS' }
+    // Ubuntu Images
+    { value: 'ubuntu:latest', label: '🐧 Ubuntu Latest', description: 'Latest Ubuntu LTS release' },
+    { value: 'ubuntu:22.04', label: '🐧 Ubuntu 22.04 LTS', description: 'Ubuntu 22.04 Jammy Jellyfish' },
+    { value: 'ubuntu:20.04', label: '🐧 Ubuntu 20.04 LTS', description: 'Ubuntu 20.04 Focal Fossa' },
+    
+    // Alpine Images
+    { value: 'alpine:latest', label: '🏔️ Alpine Latest', description: 'Lightweight Alpine Linux' },
+    { value: 'alpine:3.18', label: '🏔️ Alpine 3.18', description: 'Alpine Linux 3.18' },
+    
+    // Node.js Images
+    { value: 'node:latest', label: '🟢 Node.js Latest', description: 'Latest Node.js runtime' },
+    { value: 'node:20', label: '🟢 Node.js 20 LTS (Recommended)', description: 'Node.js 20 LTS - Stable and reliable' },
+    { value: 'node:18', label: '🟢 Node.js 18 LTS', description: 'Node.js 18 LTS' },
+    { value: 'node:20-alpine', label: '🟢 Node.js 20 Alpine', description: 'Node.js 20 on Alpine Linux' },
+    { value: 'node:18-alpine', label: '🟢 Node.js 18 Alpine', description: 'Node.js 18 on Alpine Linux' },
+    
+    // Python Images
+    { value: 'python:latest', label: '🐍 Python Latest', description: 'Latest Python runtime' },
+    { value: 'python:3.11', label: '🐍 Python 3.11', description: 'Python 3.11' },
+    { value: 'python:3.10', label: '🐍 Python 3.10', description: 'Python 3.10' },
+    { value: 'python:3.11-alpine', label: '🐍 Python 3.11 Alpine', description: 'Python 3.11 on Alpine Linux' },
+    
+    // Web Server Images
+    { value: 'nginx:latest', label: '🌐 Nginx Latest', description: 'Latest Nginx web server' },
+    { value: 'nginx:alpine', label: '🌐 Nginx Alpine', description: 'Nginx on Alpine Linux' },
+    { value: 'httpd:latest', label: '🌐 Apache Latest', description: 'Latest Apache HTTP Server' },
+    
+    // Database Images
+    { value: 'mysql:latest', label: '🗄️ MySQL Latest', description: 'Latest MySQL database' },
+    { value: 'postgres:latest', label: '🐘 PostgreSQL Latest', description: 'Latest PostgreSQL database' },
+    { value: 'redis:latest', label: '🔴 Redis Latest', description: 'Latest Redis in-memory database' },
+    { value: 'redis:alpine', label: '🔴 Redis Alpine', description: 'Redis on Alpine Linux' }
   ];
 
   if (loading) {

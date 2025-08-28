@@ -37,6 +37,78 @@ generate_api_key() {
     openssl rand -hex 32
 }
 
+# Hash password using bcrypt-compatible method
+hash_password() {
+    local password="$1"
+    # Use Python to generate bcrypt hash (compatible with Node.js bcrypt)
+    python3 -c "
+import crypt
+import secrets
+import string
+
+password = '$password'
+# Generate a salt for bcrypt
+salt = crypt.mksalt(crypt.METHOD_BLOWFISH)
+hashed = crypt.crypt(password, salt)
+print(hashed)
+"
+}
+
+# Get admin credentials
+get_admin_credentials() {
+    echo ""
+    log_info "Admin Account Setup"
+    echo "================================"
+    log_info "Please create an admin account for the web panel"
+    echo ""
+    
+    # Get username
+    while true; do
+        read -p "Enter admin username: " ADMIN_USERNAME
+        
+        if [[ -z "$ADMIN_USERNAME" ]]; then
+            log_error "Username cannot be empty."
+            continue
+        fi
+        
+        if [[ ! "$ADMIN_USERNAME" =~ ^[a-zA-Z0-9_]{3,20}$ ]]; then
+            log_error "Username must be 3-20 characters long and contain only letters, numbers, and underscores."
+            continue
+        fi
+        
+        break
+    done
+    
+    # Get password
+    while true; do
+        read -s -p "Enter admin password: " ADMIN_PASSWORD
+        echo ""
+        
+        if [[ -z "$ADMIN_PASSWORD" ]]; then
+            log_error "Password cannot be empty."
+            continue
+        fi
+        
+        if [[ ${#ADMIN_PASSWORD} -lt 6 ]]; then
+            log_error "Password must be at least 6 characters long."
+            continue
+        fi
+        
+        read -s -p "Confirm admin password: " ADMIN_PASSWORD_CONFIRM
+        echo ""
+        
+        if [[ "$ADMIN_PASSWORD" != "$ADMIN_PASSWORD_CONFIRM" ]]; then
+            log_error "Passwords do not match. Please try again."
+            continue
+        fi
+        
+        break
+    done
+    
+    log_info "Admin credentials set successfully"
+    log_info "Username: $ADMIN_USERNAME"
+}
+
 # Validate domain format
 validate_domain() {
     # Allow subdomains like pterolite.xmwstore.web.id
@@ -355,11 +427,15 @@ setup_backend() {
     
     # Install additional dependencies for authentication and new features
     log_info "Installing additional backend dependencies..."
-    npm install bcrypt jsonwebtoken multer archiver unzipper uuid
+    npm install jsonwebtoken cookie-parser multer archiver unzipper uuid
     
     # Generate API key and JWT secret
     API_KEY=$(generate_api_key)
     JWT_SECRET=$(generate_api_key)
+    
+    # Hash the admin password using HMAC-SHA256 (consistent with backend implementation)
+    log_info "Hashing admin password..."
+    ADMIN_PASSWORD_HASH=$(echo -n "$ADMIN_PASSWORD" | openssl dgst -sha256 -hmac "$JWT_SECRET" -binary | base64)
     
     # Set up environment
     cat > .env <<EOF
@@ -367,6 +443,8 @@ API_KEY=$API_KEY
 JWT_SECRET=$JWT_SECRET
 NODE_ENV=production
 PORT=8088
+ADMIN_USERNAME=$ADMIN_USERNAME
+ADMIN_PASSWORD_HASH=$ADMIN_PASSWORD_HASH
 EOF
     
     # Update server.js to use environment variables properly
@@ -928,6 +1006,9 @@ main() {
     
     # Interactive domain input
     get_domain
+    
+    # Get admin credentials
+    get_admin_credentials
     
     # System updates
     log_step "Updating system packages..."
