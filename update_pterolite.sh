@@ -1,5 +1,5 @@
 #!/bin/bash
-# PteroLite Complete Update & SSL Fix Script
+# PteroLite Complete Update Script (No Authentication)
 set -e  # Exit on any error
 
 # Colors for output
@@ -192,9 +192,9 @@ update_application() {
     if [[ -f "package.json" ]]; then
         npm install --production
         
-        # Install additional dependencies (including new authentication dependencies)
+        # Install additional dependencies (core only, no auth dependencies)
         log_info "Installing additional dependencies..."
-        npm install multer archiver unzipper uuid jsonwebtoken cookie-parser
+        npm install multer archiver unzipper uuid
         
         log_info "Dependencies updated"
     fi
@@ -204,7 +204,7 @@ update_application() {
     chmod -R 755 "$INSTALL_DIR"
     chmod 644 "$INSTALL_DIR"/*.js "$INSTALL_DIR"/*.json 2>/dev/null || true
     
-    log_info "Backend updated with Cloudflare Tunnel support"
+    log_info "Backend updated successfully"
 }
 
 # Build and deploy frontend
@@ -314,9 +314,9 @@ EOF
         # Create systemd service
         cat > /etc/systemd/system/pterolite.service <<EOF
 [Unit]
-Description=PteroLite Container Management API
-After=network.target
-Wants=network.target
+Description=PteroLite Container Management Panel
+After=network.target docker.service
+Wants=docker.service
 
 [Service]
 Type=simple
@@ -343,93 +343,13 @@ EOF
     fi
 }
 
-# Check SSL certificate status
-check_ssl_status() {
-    # Skip SSL check for localhost mode
-    if [[ "$INSTALLATION_MODE" == "localhost" ]]; then
-        log_info "Localhost mode - skipping SSL certificate check"
-        SSL_STATUS="not_applicable"
-        return 0
-    fi
-    
-    log_step "Checking SSL certificate status..."
-    
-    SSL_CERT_PATH="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
-    SSL_KEY_PATH="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
-    
-    if [[ -f "$SSL_CERT_PATH" && -f "$SSL_KEY_PATH" ]]; then
-        log_info "SSL certificate files found"
-        
-        # Check certificate expiry
-        EXPIRY_DATE=$(openssl x509 -enddate -noout -in "$SSL_CERT_PATH" | cut -d= -f2)
-        EXPIRY_TIMESTAMP=$(date -d "$EXPIRY_DATE" +%s)
-        CURRENT_TIMESTAMP=$(date +%s)
-        DAYS_UNTIL_EXPIRY=$(( (EXPIRY_TIMESTAMP - CURRENT_TIMESTAMP) / 86400 ))
-        
-        if [[ $DAYS_UNTIL_EXPIRY -gt 0 ]]; then
-            log_info "SSL certificate is valid for $DAYS_UNTIL_EXPIRY more days"
-            SSL_STATUS="valid"
-        else
-            log_warn "SSL certificate has expired"
-            SSL_STATUS="expired"
-        fi
-    else
-        log_warn "SSL certificate files not found"
-        SSL_STATUS="missing"
-    fi
-}
-
-# Function to add tunnel endpoints to nginx config
-update_nginx_tunnel_config() {
-    # Skip nginx tunnel config for localhost mode
-    if [[ "$INSTALLATION_MODE" == "localhost" ]]; then
-        log_info "Localhost mode - skipping nginx tunnel configuration"
-        return 0
-    fi
-    
-    log_step "Adding Cloudflare Tunnel endpoints to nginx configuration..."
-    
-    # Check if nginx config file exists
-    if [[ ! -f "/etc/nginx/sites-available/pterolite.conf" ]]; then
-        log_warn "Nginx configuration file not found - skipping tunnel endpoint configuration"
-        return 0
-    fi
-    
-    # Check if tunnels endpoint already exists
-    if grep -q "location /tunnels" /etc/nginx/sites-available/pterolite.conf 2>/dev/null; then
-        log_info "Tunnel endpoints already exist in nginx configuration"
-        return 0
-    fi
-    
-    # Backup current nginx config
-    cp /etc/nginx/sites-available/pterolite.conf /etc/nginx/sites-available/pterolite.conf.backup-$(date +%s) 2>/dev/null || true
-    
-    # Add tunnel endpoints after files location block
-    sed -i '/location \/files {/,/}/a\\n    # Cloudflare Tunnel management endpoints\n    location /tunnels {\n        proxy_pass http://127.0.0.1:8088/tunnels;\n        proxy_http_version 1.1;\n        proxy_set_header Upgrade $http_upgrade;\n        proxy_set_header Connection '\''upgrade'\'';\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n        proxy_cache_bypass $http_upgrade;\n    }' /etc/nginx/sites-available/pterolite.conf
-    
-    # Test nginx configuration
-    if nginx -t; then
-        log_info "Tunnel endpoints added successfully"
-        systemctl reload nginx
-    else
-        log_error "Failed to add tunnel endpoints, restoring backup"
-        cp /etc/nginx/sites-available/pterolite.conf.backup-$(date +%s) /etc/nginx/sites-available/pterolite.conf 2>/dev/null || true
-        return 1
-    fi
-}
-
-# Configure nginx for domain mode
+# Configure nginx for domain mode (without authentication endpoints)
 configure_nginx_domain() {
     log_step "Configuring nginx for domain mode..."
     
-    # Check SSL status first
-    check_ssl_status
-    
-    # Create updated nginx configuration without HTTPS redirect
-    if [[ "$SSL_STATUS" == "valid" ]]; then
-        log_info "Creating nginx configuration with SSL support (no redirect)..."
-        cat > /etc/nginx/sites-available/pterolite.conf <<EOF
-# HTTP server (no redirect)
+    # Create nginx configuration without authentication endpoints
+    log_info "Creating nginx configuration without authentication..."
+    cat > /etc/nginx/sites-available/pterolite.conf <<EOF
 server {
     listen 80;
     server_name $DOMAIN;
@@ -441,179 +361,6 @@ server {
         try_files \$uri \$uri/ /index.html;
     }
 
-    # Authentication endpoints
-    location /auth/ {
-        proxy_pass http://127.0.0.1:8088/auth/;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-    }
-
-    # Container management endpoints
-    location /containers {
-        proxy_pass http://127.0.0.1:8088/containers;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-    }
-
-    # File management endpoints
-    location /files {
-        proxy_pass http://127.0.0.1:8088/files;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-        client_max_body_size 100M;
-    }
-
-    # Cloudflare Tunnel management endpoints
-    location /tunnels {
-        proxy_pass http://127.0.0.1:8088/tunnels;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-    }
-
-    # Process management endpoints
-    location /processes {
-        proxy_pass http://127.0.0.1:8088/processes;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-    }
-
-    # Console endpoints
-    location /console {
-        proxy_pass http://127.0.0.1:8088/console;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-    }
-
-    # Script execution endpoints
-    location /scripts {
-        proxy_pass http://127.0.0.1:8088/scripts;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-    }
-
-    # Startup commands endpoints
-    location /startup-commands {
-        proxy_pass http://127.0.0.1:8088/startup-commands;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-    }
-
-    # Docker management endpoints
-    location /docker {
-        proxy_pass http://127.0.0.1:8088/docker;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-    }
-
-    # API eksternal dengan authentication (untuk akses programmatic)
-    location /external-api/ {
-        proxy_pass http://127.0.0.1:8088/api/;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-    }
-
-    # Security headers (without HTTPS enforcement)
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header Referrer-Policy "no-referrer-when-downgrade" always;
-    add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
-}
-
-# HTTPS server (optional, no redirect from HTTP)
-server {
-    listen 443 ssl http2;
-    server_name $DOMAIN;
-    root $WEB_ROOT;
-    index index.html;
-
-    # SSL Configuration
-    ssl_certificate $SSL_CERT_PATH;
-    ssl_certificate_key $SSL_KEY_PATH;
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384;
-    ssl_prefer_server_ciphers off;
-    ssl_session_cache shared:SSL:10m;
-    ssl_session_timeout 10m;
-
-    # Serve static files (React frontend)
-    location / {
-        try_files \$uri \$uri/ /index.html;
-    }
-
-    # Authentication endpoints
-    location /auth/ {
-        proxy_pass http://127.0.0.1:8088/auth/;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-    }
-
     # Container management endpoints
     location /containers {
         proxy_pass http://127.0.0.1:8088/containers;
@@ -719,7 +466,7 @@ server {
         proxy_cache_bypass \$http_upgrade;
     }
 
-    # Security headers (without HTTPS enforcement)
+    # Security headers
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-XSS-Protection "1; mode=block" always;
     add_header X-Content-Type-Options "nosniff" always;
@@ -727,171 +474,8 @@ server {
     add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
 }
 EOF
-    else
-        log_info "Creating nginx configuration for HTTP only..."
-        cat > /etc/nginx/sites-available/pterolite.conf <<EOF
-server {
-    listen 80;
-    server_name $DOMAIN;
-    root $WEB_ROOT;
-    index index.html;
-
-    # Serve static files (React frontend)
-    location / {
-        try_files \$uri \$uri/ /index.html;
-    }
-
-    # Authentication endpoints
-    location /auth/ {
-        proxy_pass http://127.0.0.1:8088/auth/;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-    }
-
-    # Container management endpoints
-    location /containers {
-        proxy_pass http://127.0.0.1:8088/containers;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-    }
-
-    # File management endpoints
-    location /files {
-        proxy_pass http://127.0.0.1:8088/files;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-        client_max_body_size 100M;
-    }
-
-    # Process management endpoints
-    location /processes {
-        proxy_pass http://127.0.0.1:8088/processes;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-    }
-
-    # Console endpoints
-    location /console {
-        proxy_pass http://127.0.0.1:8088/console;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-    }
-
-    # Script execution endpoints
-    location /scripts {
-        proxy_pass http://127.0.0.1:8088/scripts;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-    }
-
-    # Startup commands endpoints
-    location /startup-commands {
-        proxy_pass http://127.0.0.1:8088/startup-commands;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-    }
-
-    # Docker management endpoints
-    location /docker {
-        proxy_pass http://127.0.0.1:8088/docker;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-    }
-
-    # API eksternal dengan authentication (untuk akses programmatic)
-    location /external-api/ {
-        proxy_pass http://127.0.0.1:8088/api/;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-    }
-
-    # Security headers (without HTTPS enforcement)
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header Referrer-Policy "no-referrer-when-downgrade" always;
-    add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
-}
-EOF
-    fi
     
-    # Enable site
-    ln -sf /etc/nginx/sites-available/pterolite.conf /etc/nginx/sites-enabled/
-    
-    # Remove default site if exists
-    rm -f /etc/nginx/sites-enabled/default
-    
-    # Test nginx configuration
-    log_info "Testing nginx configuration..."
-    if nginx -t; then
-        log_info "Nginx configuration is valid"
-        systemctl reload nginx
-    else
-        log_error "Nginx configuration test failed"
-        log_error "Restoring backup nginx configuration..."
-        if [[ -f "$BACKUP_DIR/nginx/pterolite.conf" ]]; then
-            cp "$BACKUP_DIR/nginx/pterolite.conf" /etc/nginx/sites-available/pterolite.conf
-            nginx -t && systemctl reload nginx
-            log_warn "Backup nginx configuration restored"
-        fi
-        exit 1
-    fi
-    
-    log_info "Nginx configuration updated successfully"
+    log_info "Nginx configuration created without authentication endpoints"
 }
 
 # Configure for localhost mode (skip nginx, use direct port access)
@@ -945,59 +529,6 @@ update_nginx_config() {
     fi
 }
 
-# Fix or install SSL certificate
-fix_ssl_certificate() {
-    # Skip SSL for localhost mode
-    if [[ "$INSTALLATION_MODE" == "localhost" ]]; then
-        log_info "Localhost mode - skipping SSL certificate configuration"
-        return 0
-    fi
-    
-    log_step "Fixing SSL certificate..."
-    
-    case $SSL_STATUS in
-        "missing")
-            log_info "Installing new SSL certificate..."
-            if command -v certbot >/dev/null 2>&1; then
-                if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --email "admin@$DOMAIN" --no-redirect; then
-                    log_info "SSL certificate installed successfully (no redirect)"
-                    SSL_STATUS="valid"
-                    # Update nginx config with SSL
-                    update_nginx_config
-                else
-                    log_warn "Failed to install SSL certificate automatically"
-                fi
-            else
-                log_warn "Certbot not installed. Installing..."
-                apt-get update
-                apt-get install -y certbot python3-certbot-nginx
-                if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --email "admin@$DOMAIN" --no-redirect; then
-                    log_info "SSL certificate installed successfully (no redirect)"
-                    SSL_STATUS="valid"
-                    # Update nginx config with SSL
-                    update_nginx_config
-                else
-                    log_warn "Failed to install SSL certificate"
-                fi
-            fi
-            ;;
-        "expired")
-            log_info "Renewing expired SSL certificate..."
-            if certbot renew --nginx; then
-                log_info "SSL certificate renewed successfully"
-                SSL_STATUS="valid"
-                # Update nginx config with SSL
-                update_nginx_config
-            else
-                log_error "Failed to renew SSL certificate"
-            fi
-            ;;
-        "valid")
-            log_info "SSL certificate is already valid"
-            ;;
-    esac
-}
-
 # Start services
 start_services() {
     log_step "Starting services..."
@@ -1018,8 +549,8 @@ start_services() {
         exit 1
     fi
     
-    # Ensure nginx is running
-    if ! systemctl is-active --quiet nginx; then
+    # Ensure nginx is running (if not localhost mode)
+    if [[ "$INSTALLATION_MODE" != "localhost" ]] && ! systemctl is-active --quiet nginx; then
         systemctl start nginx
     fi
     
@@ -1050,41 +581,21 @@ test_services() {
         fi
     else
         # For domain mode, test through nginx proxy
-        if [[ "$SSL_STATUS" == "valid" ]]; then
-            if curl -s -k "https://$DOMAIN/external-api/containers" >/dev/null 2>&1; then
-                log_info "✅ Backend API is responding (HTTPS)"
-            elif curl -s "http://localhost:8088/containers" >/dev/null 2>&1; then
-                log_info "✅ Backend API is responding (direct connection)"
-            else
-                log_error "❌ Backend API is not responding"
-                return 1
-            fi
+        if curl -s "http://$DOMAIN/external-api/containers" >/dev/null 2>&1; then
+            log_info "✅ Backend API is responding (HTTP)"
+        elif curl -s "http://localhost:8088/containers" >/dev/null 2>&1; then
+            log_info "✅ Backend API is responding (direct connection)"
         else
-            if curl -s "http://$DOMAIN/external-api/containers" >/dev/null 2>&1; then
-                log_info "✅ Backend API is responding (HTTP)"
-            elif curl -s "http://localhost:8088/containers" >/dev/null 2>&1; then
-                log_info "✅ Backend API is responding (direct connection)"
-            else
-                log_error "❌ Backend API is not responding"
-                return 1
-            fi
+            log_error "❌ Backend API is not responding"
+            return 1
         fi
         
         # Test frontend
-        if [[ "$SSL_STATUS" == "valid" ]]; then
-            if curl -s -I "https://$DOMAIN" | grep -q "HTTP/"; then
-                log_info "✅ HTTPS frontend is accessible"
-            else
-                log_error "❌ HTTPS frontend is not accessible"
-                return 1
-            fi
+        if curl -s -I "http://$DOMAIN" | grep -q "HTTP/"; then
+            log_info "✅ HTTP frontend is accessible"
         else
-            if curl -s -I "http://$DOMAIN" | grep -q "HTTP/"; then
-                log_info "✅ HTTP frontend is accessible"
-            else
-                log_error "❌ HTTP frontend is not accessible"
-                return 1
-            fi
+            log_error "❌ HTTP frontend is not accessible"
+            return 1
         fi
     fi
     
@@ -1094,7 +605,7 @@ test_services() {
 # Show completion summary
 show_summary() {
     echo ""
-    log_info "🎉 PteroLite Update & SSL Fix Completed!"
+    log_info "🎉 PteroLite Update Completed!"
     echo "================================"
     
     log_info "Installation Details:"
@@ -1111,31 +622,20 @@ show_summary() {
         log_info "Web Panel (IP): http://$(hostname -I | awk '{print $1}'):8088"
         log_info "API: http://localhost:8088/api"
         log_info "API (IP): http://$(hostname -I | awk '{print $1}'):8088/api"
-        log_info "Mode: Localhost Only (Direct Port Access, No Nginx, No SSL)"
-    elif [[ "$SSL_STATUS" == "valid" ]]; then
-        log_info "Web Panel HTTP: http://$DOMAIN"
-        log_info "Web Panel HTTPS: https://$DOMAIN"
-        log_info "API Eksternal HTTP: http://$DOMAIN/external-api"
-        log_info "API Eksternal HTTPS: https://$DOMAIN/external-api"
-        log_info "Note: No automatic redirect to HTTPS - both HTTP and HTTPS work"
+        log_info "Mode: Localhost Only (Direct Port Access, No Authentication)"
     else
-        log_info "Web Panel: http://$DOMAIN (HTTP only)"
-        log_info "API Eksternal: http://$DOMAIN/external-api (HTTP only)"
-        log_warn "SSL certificate not found - run: certbot --nginx -d $DOMAIN --no-redirect"
+        log_info "Web Panel: http://$DOMAIN (No Authentication Required)"
+        log_info "API Eksternal: http://$DOMAIN/external-api (Requires X-API-Key header)"
     fi
     
-    # New Features
     echo ""
-    log_info "🆕 NEW FEATURES:"
+    log_info "🆕 FEATURES:"
     echo "================================"
-    log_info "• Dark theme interface"
-    log_info "• Container path isolation"
-    log_info "• Enhanced file manager with container restrictions"
-    log_info "• Console with automatic container working directory"
-    log_info "• Improved security with path validation"
-    log_info "• Cloudflare Tunnel management (Quick, Named, Token)"
-    log_info "• Real-time tunnel logs and monitoring"
-    log_info "• Automatic cloudflared installation"
+    log_info "• No authentication required for web panel"
+    log_info "• Container management without user restrictions"
+    log_info "• File manager with full access"
+    log_info "• Console and script execution"
+    log_info "• Docker image management"
     
     echo ""
     log_info "🔧 MANAGEMENT COMMANDS:"
@@ -1145,15 +645,6 @@ show_summary() {
     log_info "• Restart service: systemctl restart pterolite"
     log_info "• View logs: journalctl -u pterolite -f"
     log_info "• Check status: systemctl status pterolite"
-    log_info "• Renew SSL: certbot renew"
-    
-    echo ""
-    log_info "📁 CONTAINER ISOLATION:"
-    echo "================================"
-    log_info "• Each container has isolated file access"
-    log_info "• File Manager restricted to container folders"
-    log_info "• Console commands execute in container directory"
-    log_info "• Path traversal protection enabled"
     
     # Save update info
     cat > "$INSTALL_DIR/update-info.txt" <<EOF
@@ -1161,26 +652,23 @@ PteroLite Update Information
 ===========================
 Update Date: $(date)
 Domain: $DOMAIN
-SSL Status: $SSL_STATUS
 Installation Type: systemd
 Backup Location: $BACKUP_DIR
+Authentication: Disabled (No login required)
 
 Services:
 - Backend: systemd (pterolite)
-- Web Server: nginx
-- SSL: Let's Encrypt
+- Web Server: nginx (if domain mode)
 
-New Features:
-- Dark theme interface
-- Container path isolation
-- Enhanced security
-- Improved file manager
-- Console with container restrictions
+Features:
+- No authentication required
+- Direct container access
+- Full file management
+- Console and script execution
 
 Management Commands:
 - systemctl start/stop/restart pterolite
 - journalctl -u pterolite -f
-- certbot renew
 EOF
     
     log_info "Update information saved to $INSTALL_DIR/update-info.txt"
@@ -1189,9 +677,9 @@ EOF
 # Main function
 main() {
     echo ""
-    echo "🚀 PteroLite Complete Update & SSL Fix"
-    echo "====================================="
-    echo "This script will update PteroLite and fix SSL issues"
+    echo "🚀 PteroLite Complete Update (No Authentication)"
+    echo "=============================================="
+    echo "This script will update PteroLite without authentication system"
     echo ""
     
     check_root
@@ -1202,17 +690,15 @@ main() {
     update_application
     update_frontend
     migrate_to_systemd
-    check_ssl_status
     update_nginx_config
-    update_nginx_tunnel_config
-    fix_ssl_certificate
     start_services
     
     if test_services; then
         show_summary
         echo ""
         log_info "🎉 Update completed successfully!"
-        log_info "Your PteroLite installation is now updated with the latest features and SSL is properly configured."
+        log_info "Your PteroLite installation is now updated without authentication."
+        log_info "Web panel is accessible directly without login."
     else
         log_error "❌ Some services are not working properly. Please check the logs."
         log_info "Backup is available at: $BACKUP_DIR"
