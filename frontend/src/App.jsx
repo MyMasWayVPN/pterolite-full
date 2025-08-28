@@ -15,17 +15,37 @@ export default function App() {
   const [selectedContainer, setSelectedContainer] = useState(null)
   const [showContainerSelector, setShowContainerSelector] = useState(true)
   
-  // Listen for server selection event (simplified)
+  // Debug state changes
+  useEffect(() => {
+    console.log('🔍 showContainerSelector changed to:', showContainerSelector);
+  }, [showContainerSelector]);
+  
+  useEffect(() => {
+    console.log('🔍 selectedContainer changed to:', selectedContainer);
+  }, [selectedContainer]);
+  
+  // Listen for server selection event (with detailed debugging)
   useEffect(() => {
     const handleContainerSelected = (event) => {
-      console.log('Container selected via event:', event.detail);
+      console.log('🎯 Event received - Container selected via event:', event.detail);
+      console.log('🎯 Current showContainerSelector before:', showContainerSelector);
+      console.log('🎯 Current selectedContainer before:', selectedContainer);
+      
       setSelectedContainer(event.detail);
       setShowContainerSelector(false);
+      
+      console.log('🎯 Setting showContainerSelector to false');
+      console.log('🎯 Setting selectedContainer to:', event.detail);
     };
 
+    console.log('🎯 Adding event listener for containerSelected');
     window.addEventListener('containerSelected', handleContainerSelected);
-    return () => window.removeEventListener('containerSelected', handleContainerSelected);
+    return () => {
+      console.log('🎯 Removing event listener for containerSelected');
+      window.removeEventListener('containerSelected', handleContainerSelected);
+    };
   }, []);
+
 
   // Validate and restore saved container on mount
   useEffect(() => {
@@ -167,7 +187,10 @@ export default function App() {
   };
 
   // Show container selector if explicitly requested OR no container is selected
+  console.log('🔍 Render check - showContainerSelector:', showContainerSelector, 'selectedContainer:', selectedContainer?.Names?.[0] || 'null');
+  
   if (showContainerSelector) {
+    console.log('🔍 Rendering ContainerSelector');
     return (
       <ContainerSelector 
         onContainerSelect={handleContainerSelect}
@@ -175,6 +198,8 @@ export default function App() {
       />
     );
   }
+  
+  console.log('🔍 Rendering Dashboard');
 
   const renderTabContent = () => {
     switch (activeTab) {
