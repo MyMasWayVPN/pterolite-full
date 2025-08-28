@@ -1,5 +1,5 @@
 #!/bin/bash
-# PteroLite Auto Installer - GitHub Version
+# PteroLite Auto Installer - No Authentication Version
 set -e  # Exit on any error
 
 # Configuration
@@ -35,78 +35,6 @@ log_step() {
 # Generate random API key
 generate_api_key() {
     openssl rand -hex 32
-}
-
-# Hash password using bcrypt-compatible method
-hash_password() {
-    local password="$1"
-    # Use Python to generate bcrypt hash (compatible with Node.js bcrypt)
-    python3 -c "
-import crypt
-import secrets
-import string
-
-password = '$password'
-# Generate a salt for bcrypt
-salt = crypt.mksalt(crypt.METHOD_BLOWFISH)
-hashed = crypt.crypt(password, salt)
-print(hashed)
-"
-}
-
-# Get admin credentials
-get_admin_credentials() {
-    echo ""
-    log_info "Admin Account Setup"
-    echo "================================"
-    log_info "Please create an admin account for the web panel"
-    echo ""
-    
-    # Get username
-    while true; do
-        read -p "Enter admin username: " ADMIN_USERNAME
-        
-        if [[ -z "$ADMIN_USERNAME" ]]; then
-            log_error "Username cannot be empty."
-            continue
-        fi
-        
-        if [[ ! "$ADMIN_USERNAME" =~ ^[a-zA-Z0-9_]{3,20}$ ]]; then
-            log_error "Username must be 3-20 characters long and contain only letters, numbers, and underscores."
-            continue
-        fi
-        
-        break
-    done
-    
-    # Get password
-    while true; do
-        read -s -p "Enter admin password: " ADMIN_PASSWORD
-        echo ""
-        
-        if [[ -z "$ADMIN_PASSWORD" ]]; then
-            log_error "Password cannot be empty."
-            continue
-        fi
-        
-        if [[ ${#ADMIN_PASSWORD} -lt 6 ]]; then
-            log_error "Password must be at least 6 characters long."
-            continue
-        fi
-        
-        read -s -p "Confirm admin password: " ADMIN_PASSWORD_CONFIRM
-        echo ""
-        
-        if [[ "$ADMIN_PASSWORD" != "$ADMIN_PASSWORD_CONFIRM" ]]; then
-            log_error "Passwords do not match. Please try again."
-            continue
-        fi
-        
-        break
-    done
-    
-    log_info "Admin credentials set successfully"
-    log_info "Username: $ADMIN_USERNAME"
 }
 
 # Validate domain format
@@ -193,56 +121,6 @@ install_docker() {
     fi
     
     log_info "Docker installed successfully"
-}
-
-# Install Cloudflared
-install_cloudflared() {
-    log_info "Installing Cloudflared..."
-    
-    # Check if already installed
-    if command -v cloudflared >/dev/null 2>&1; then
-        log_info "Cloudflared already installed: $(cloudflared --version)"
-        return 0
-    fi
-    
-    # Download and install cloudflared
-    local ARCH=$(dpkg --print-architecture)
-    local CLOUDFLARED_URL
-    
-    case $ARCH in
-        amd64)
-            CLOUDFLARED_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb"
-            ;;
-        arm64)
-            CLOUDFLARED_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64.deb"
-            ;;
-        *)
-            log_warn "Unsupported architecture: $ARCH. Installing from binary..."
-            # Fallback to binary installation
-            curl -L --output /usr/local/bin/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$ARCH
-            chmod +x /usr/local/bin/cloudflared
-            log_info "Cloudflared installed from binary"
-            return 0
-            ;;
-    esac
-    
-    # Download and install .deb package
-    local TEMP_DEB="/tmp/cloudflared.deb"
-    
-    if curl -L --output "$TEMP_DEB" "$CLOUDFLARED_URL"; then
-        if dpkg -i "$TEMP_DEB" 2>/dev/null || apt-get install -f -y; then
-            log_info "Cloudflared installed successfully: $(cloudflared --version 2>/dev/null || echo 'version check failed')"
-        else
-            log_error "Failed to install cloudflared package"
-            return 1
-        fi
-        
-        # Clean up
-        rm -f "$TEMP_DEB"
-    else
-        log_error "Failed to download cloudflared"
-        return 1
-    fi
 }
 
 # Download project from GitHub
@@ -425,26 +303,18 @@ setup_backend() {
     log_info "Installing backend dependencies..."
     npm install
     
-    # Install additional dependencies for authentication and new features
+    # Install additional dependencies (core only, no auth dependencies)
     log_info "Installing additional backend dependencies..."
-    npm install jsonwebtoken cookie-parser multer archiver unzipper uuid
+    npm install multer archiver unzipper uuid
     
-    # Generate API key and JWT secret
+    # Generate API key
     API_KEY=$(generate_api_key)
-    JWT_SECRET=$(generate_api_key)
-    
-    # Hash the admin password using HMAC-SHA256 (consistent with backend implementation)
-    log_info "Hashing admin password..."
-    ADMIN_PASSWORD_HASH=$(echo -n "$ADMIN_PASSWORD" | openssl dgst -sha256 -hmac "$JWT_SECRET" -binary | base64)
     
     # Set up environment
     cat > .env <<EOF
 API_KEY=$API_KEY
-JWT_SECRET=$JWT_SECRET
 NODE_ENV=production
 PORT=8088
-ADMIN_USERNAME=$ADMIN_USERNAME
-ADMIN_PASSWORD_HASH=$ADMIN_PASSWORD_HASH
 EOF
     
     # Update server.js to use environment variables properly
@@ -578,11 +448,11 @@ start_services() {
     fi
 }
 
-# Configure Nginx for domain mode
+# Configure Nginx for domain mode (without authentication endpoints)
 configure_nginx_domain() {
     log_step "Configuring Nginx for domain mode..."
     
-    # Create nginx configuration without HTTPS redirect
+    # Create nginx configuration without authentication endpoints
     cat > /etc/nginx/sites-available/pterolite.conf <<EOF
 server {
     listen 80;
@@ -593,19 +463,6 @@ server {
     # Serve static files (React frontend)
     location / {
         try_files \$uri \$uri/ /index.html;
-    }
-
-    # Authentication endpoints
-    location /auth/ {
-        proxy_pass http://127.0.0.1:8088/auth/;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
     }
 
     # Container management endpoints
@@ -700,19 +557,6 @@ server {
         proxy_cache_bypass \$http_upgrade;
     }
 
-    # Cloudflare Tunnel management endpoints
-    location /tunnels {
-        proxy_pass http://127.0.0.1:8088/tunnels;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-    }
-
     # API eksternal dengan authentication (untuk akses programmatic)
     location /external-api/ {
         proxy_pass http://127.0.0.1:8088/api/;
@@ -726,7 +570,7 @@ server {
         proxy_cache_bypass \$http_upgrade;
     }
 
-    # Security headers (without HTTPS enforcement)
+    # Security headers
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-XSS-Protection "1; mode=block" always;
     add_header X-Content-Type-Options "nosniff" always;
@@ -735,7 +579,7 @@ server {
 }
 EOF
     
-    log_info "Nginx configured for domain mode"
+    log_info "Nginx configured for domain mode without authentication"
 }
 
 # Configure for localhost mode (skip nginx, use direct port access)
@@ -764,25 +608,25 @@ configure_nginx() {
         configure_nginx_localhost
     else
         configure_nginx_domain
+        
+        # Enable site
+        ln -sf /etc/nginx/sites-available/pterolite.conf /etc/nginx/sites-enabled/
+        
+        # Remove default site if exists
+        rm -f /etc/nginx/sites-enabled/default
+        
+        # Test nginx configuration
+        log_info "Testing Nginx configuration..."
+        if nginx -t; then
+            log_info "Nginx configuration is valid"
+            systemctl reload nginx
+        else
+            log_error "Nginx configuration test failed"
+            exit 1
+        fi
+        
+        log_info "Nginx configured successfully"
     fi
-    
-    # Enable site
-    ln -sf /etc/nginx/sites-available/pterolite.conf /etc/nginx/sites-enabled/
-    
-    # Remove default site if exists
-    rm -f /etc/nginx/sites-enabled/default
-    
-    # Test nginx configuration
-    log_info "Testing Nginx configuration..."
-    if nginx -t; then
-        log_info "Nginx configuration is valid"
-        systemctl reload nginx
-    else
-        log_error "Nginx configuration test failed"
-        exit 1
-    fi
-    
-    log_info "Nginx configured successfully"
 }
 
 # Verify installation
@@ -798,13 +642,17 @@ verify_installation() {
         BACKEND_STATUS="❌ Failed"
     fi
     
-    # Check Nginx service
-    if systemctl is-active --quiet nginx; then
-        log_info "✅ Nginx web server is running"
-        NGINX_STATUS="✅ Running"
+    # Check Nginx service (only for domain mode)
+    if [[ "$INSTALLATION_MODE" != "localhost" ]]; then
+        if systemctl is-active --quiet nginx; then
+            log_info "✅ Nginx web server is running"
+            NGINX_STATUS="✅ Running"
+        else
+            log_error "❌ Nginx failed to start"
+            NGINX_STATUS="❌ Failed"
+        fi
     else
-        log_error "❌ Nginx failed to start"
-        NGINX_STATUS="❌ Failed"
+        NGINX_STATUS="N/A (Localhost Mode)"
     fi
     
     # Check Docker service
@@ -826,12 +674,22 @@ verify_installation() {
     fi
     
     # Check if website is accessible
-    if curl -s -o /dev/null -w "%{http_code}" "http://localhost" | grep -q "200\|301\|302"; then
-        log_info "✅ Website is accessible via HTTP"
-        HTTP_ACCESS="✅ Accessible"
+    if [[ "$INSTALLATION_MODE" == "localhost" ]]; then
+        if curl -s -o /dev/null -w "%{http_code}" "http://localhost:8088" | grep -q "200\|301\|302"; then
+            log_info "✅ Website is accessible via localhost:8088"
+            HTTP_ACCESS="✅ Accessible"
+        else
+            log_warn "⚠️ Website not accessible via localhost:8088"
+            HTTP_ACCESS="⚠️ Not Accessible"
+        fi
     else
-        log_warn "⚠️ Website not accessible via HTTP"
-        HTTP_ACCESS="⚠️ Not Accessible"
+        if curl -s -o /dev/null -w "%{http_code}" "http://localhost" | grep -q "200\|301\|302"; then
+            log_info "✅ Website is accessible via HTTP"
+            HTTP_ACCESS="✅ Accessible"
+        else
+            log_warn "⚠️ Website not accessible via HTTP"
+            HTTP_ACCESS="⚠️ Not Accessible"
+        fi
     fi
     
     log_info "Installation verification completed"
@@ -859,7 +717,6 @@ show_summary() {
     echo "================================"
     log_info "Domain: $DOMAIN"
     log_info "API Key: $API_KEY"
-    log_info "JWT Secret: $JWT_SECRET"
     log_info "Backend Port: 8088"
     log_info "Install Directory: $INSTALL_DIR"
     log_info "Web Root: $WEB_ROOT"
@@ -870,22 +727,22 @@ show_summary() {
     log_info "🌐 ACCESS INFORMATION:"
     echo "================================"
     if [[ "$INSTALLATION_MODE" == "localhost" ]]; then
-        log_info "Web Panel: http://localhost:8088"
+        log_info "Web Panel: http://localhost:8088 (No Authentication Required)"
         log_info "Web Panel (IP): http://$(hostname -I | awk '{print $1}'):8088"
-        log_info "API Eksternal: http://localhost:8088/api (perlu X-API-Key header)"
-        log_info "API Eksternal (IP): http://$(hostname -I | awk '{print $1}'):8088/api (perlu X-API-Key header)"
-        log_info "Mode: Localhost Only (Direct Port Access, No Nginx, No SSL)"
+        log_info "API Eksternal: http://localhost:8088/api (Requires X-API-Key header)"
+        log_info "API Eksternal (IP): http://$(hostname -I | awk '{print $1}'):8088/api"
+        log_info "Mode: Localhost Only (Direct Port Access, No Authentication)"
         PANEL_URL="http://localhost:8088"
     elif [[ "$SSL_ENABLED" == "true" ]]; then
-        log_info "Web Panel HTTP: http://$DOMAIN"
-        log_info "Web Panel HTTPS: https://$DOMAIN"
-        log_info "API Eksternal HTTP: http://$DOMAIN/external-api (perlu X-API-Key header)"
-        log_info "API Eksternal HTTPS: https://$DOMAIN/external-api (perlu X-API-Key header)"
+        log_info "Web Panel HTTP: http://$DOMAIN (No Authentication Required)"
+        log_info "Web Panel HTTPS: https://$DOMAIN (No Authentication Required)"
+        log_info "API Eksternal HTTP: http://$DOMAIN/external-api (Requires X-API-Key header)"
+        log_info "API Eksternal HTTPS: https://$DOMAIN/external-api (Requires X-API-Key header)"
         log_info "Note: No automatic redirect to HTTPS - both HTTP and HTTPS work"
         PANEL_URL="http://$DOMAIN"
     else
-        log_info "Web Panel: http://$DOMAIN"
-        log_info "API Eksternal: http://$DOMAIN/external-api (perlu X-API-Key header)"
+        log_info "Web Panel: http://$DOMAIN (No Authentication Required)"
+        log_info "API Eksternal: http://$DOMAIN/external-api (Requires X-API-Key header)"
         PANEL_URL="http://$DOMAIN"
     fi
     
@@ -893,16 +750,14 @@ show_summary() {
     echo ""
     log_info "🚀 AVAILABLE FEATURES:"
     echo "================================"
-    log_info "• 🔐 User Authentication - JWT-based login system"
-    log_info "• 👥 User Management - Admin can create/manage users"
-    log_info "• 🐳 Server Management - Create, start, stop, delete Docker servers"
+    log_info "• 🐳 Container Management - Create, start, stop, delete Docker containers"
     log_info "• 📁 File Manager - Upload, edit, delete files & extract ZIP"
     log_info "• 💻 Console Terminal - Execute server commands"
     log_info "• ⚡ Script Executor - Run JavaScript (Node.js) & Python scripts"
     log_info "• 🔧 Startup Manager - Manage startup commands"
     log_info "• 🐋 Docker Image Manager - Manage Docker images"
-    log_info "• 🔒 Role-based Access Control - Admin vs User permissions"
-    log_info "• 🏠 User Isolation - Users can only see their own servers"
+    log_info "• 🌐 No Authentication Required - Direct access to web panel"
+    log_info "• 🔓 Open Access - All users can manage all containers"
     
     # Management Commands
     echo ""
@@ -912,18 +767,20 @@ show_summary() {
     log_info "• Restart backend: systemctl restart pterolite"
     log_info "• Stop backend: systemctl stop pterolite"
     log_info "• Check backend status: systemctl status pterolite"
-    log_info "• Check nginx status: systemctl status nginx"
-    log_info "• Restart nginx: systemctl restart nginx"
+    if [[ "$INSTALLATION_MODE" != "localhost" ]]; then
+        log_info "• Check nginx status: systemctl status nginx"
+        log_info "• Restart nginx: systemctl restart nginx"
+    fi
     log_info "• Check docker status: systemctl status docker"
     
-    # Access Information
+    # Security Information
     echo ""
-    log_info "🌐 ACCESS INFORMATION:"
+    log_info "🔐 SECURITY INFORMATION:"
     echo "================================"
-    log_info "• Web Panel: No authentication required"
-    log_info "• Direct access to container management"
-    log_info "• API key untuk akses eksternal: $API_KEY"
+    log_info "• Web Panel: No authentication required - direct access"
+    log_info "• API key for external access: $API_KEY"
     log_info "• External API requires X-API-Key header: /external-api/*"
+    log_info "• All users have full access to all containers and files"
     
     echo ""
     log_info "🎯 NEXT STEPS:"
@@ -942,129 +799,11 @@ Installation Date: $(date)
 Domain: $DOMAIN
 Panel URL: $PANEL_URL
 API Key: $API_KEY
-JWT Secret: $JWT_SECRET
 Install Directory: $INSTALL_DIR
 Web Root: $WEB_ROOT
 GitHub Repository: $GITHUB_REPO
+Authentication: Disabled (No login required)
 
 Services:
 - Backend: systemd service (pterolite)
-- Web Server: Nginx
-- Docker: Container Management
-- SSL: Let's Encrypt (if configured)
-
-Commands:
-- View backend logs: journalctl -u pterolite -f
-- Restart backend: systemctl restart pterolite
-- Check backend status: systemctl status pterolite
-- Check nginx status: systemctl status nginx
-- Renew SSL: certbot renew
-
-Features:
-- User Authentication & Management
-- Role-based Access Control
-- Server Management (User Isolation)
-- File Manager
-- Console Terminal
-- Script Executor
-- Startup Manager
-- Docker Image Manager
-EOF
-    
-    log_info "Installation information saved to $INSTALL_DIR/installation-info.txt"
-}
-
-# Cleanup temporary files
-cleanup() {
-    log_info "Cleaning up temporary files..."
-    rm -rf "$TEMP_DIR"
-    log_info "Cleanup completed"
-}
-
-# Main installation function
-main() {
-    echo ""
-    echo "🐳 PteroLite Auto Installer - GitHub Version"
-    echo "============================================="
-    echo "This installer will download and install PteroLite from:"
-    echo "$GITHUB_REPO"
-    echo ""
-    echo "Features to be installed:"
-    echo "• Container Management with Docker"
-    echo "• File Manager with upload/download"
-    echo "• Console Terminal"
-    echo "• Script Executor (JavaScript & Python)"
-    echo "• Startup Manager"
-    echo "• Docker Image Manager"
-    echo ""
-    
-    # Check prerequisites
-    check_root
-    
-    # Choose installation type
-    choose_installation_type
-    
-    # Interactive domain input
-    get_domain
-    
-    # Get admin credentials
-    get_admin_credentials
-    
-    # System updates
-    log_step "Updating system packages..."
-    apt-get update && apt-get upgrade -y
-    
-    # Install basic dependencies
-    log_info "Installing basic dependencies..."
-    apt-get install -y curl git nginx certbot python3-certbot-nginx openssl build-essential python3 python3-pip unzip wget
-    
-    # Install Node.js if needed
-    if ! check_node_version; then
-        install_nodejs
-    fi
-    
-    # Install Docker
-    if ! command -v docker >/dev/null 2>&1; then
-        install_docker
-    else
-        log_info "Docker already installed"
-    fi
-    
-    # Install Cloudflared for tunneling
-    log_info "Installing Cloudflared..."
-    install_cloudflared
-    
-    # Download project from GitHub
-    download_project
-    
-    # Setup components
-    setup_backend
-    setup_frontend
-    start_services
-    configure_nginx
-    
-    # Interactive SSL setup
-    setup_ssl_interactive
-    
-    # Verify installation
-    verify_installation
-    
-    # Show summary
-    show_summary
-    
-    # Cleanup
-    cleanup
-    
-    # Final status
-    echo ""
-    if [[ "$BACKEND_STATUS" == "✅ Running" && "$NGINX_STATUS" == "✅ Running" ]]; then
-        log_info "🎉 Installation completed successfully! All core services are running."
-        log_info "🌐 Visit your domain to start using PteroLite: $DOMAIN"
-    else
-        log_warn "⚠️ Installation completed with some issues. Please check the service status above."
-    fi
-    echo ""
-}
-
-# Run main function
-main "$@"
+- Web Server:
