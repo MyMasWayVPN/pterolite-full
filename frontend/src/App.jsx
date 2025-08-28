@@ -158,11 +158,17 @@ export default function App() {
     }
   }, [activeTab])
 
+  // Handle container selection from ContainerSelector
+  const handleContainerSelect = (container) => {
+    setSelectedContainer(container);
+    setShowContainerSelector(false);
+  };
+
   // Show container selector if no container is selected
   if (showContainerSelector || !selectedContainer) {
     return (
       <ContainerSelector 
-        onContainerSelect={setSelectedContainer}
+        onContainerSelect={handleContainerSelect}
         selectedContainer={selectedContainer}
       />
     );
