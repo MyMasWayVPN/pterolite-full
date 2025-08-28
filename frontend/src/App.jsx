@@ -166,8 +166,8 @@ export default function App() {
     // Don't hide selector here, let the Continue button handle that
   };
 
-  // Show container selector if no container is selected
-  if (showContainerSelector || !selectedContainer) {
+  // Show container selector if explicitly requested OR no container is selected
+  if (showContainerSelector) {
     return (
       <ContainerSelector 
         onContainerSelect={handleContainerSelect}
