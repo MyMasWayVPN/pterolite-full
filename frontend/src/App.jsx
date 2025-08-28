@@ -1,331 +1,324 @@
-import { useState, useEffect } from 'react';
-import ContainerSelector from './ContainerSelector';
-import FileManager from './FileManager';
-import Console from './Console';
-import ScriptExecutor from './ScriptExecutor';
-import StartupManager from './StartupManager';
-import DockerImageManager from './DockerImageManager';
-import TunnelManager from './TunnelManager';
-import Login from './Login';
-import { api } from './api';
+import { useEffect, useState } from 'react'
+import { api } from './api.js'
+import FileManager from './FileManager.jsx'
+import Console from './Console.jsx'
+import DockerImageManager from './DockerImageManager.jsx'
+import ContainerSelector from './ContainerSelector.jsx'
 
-function App() {
-  const [selectedContainer, setSelectedContainer] = useState(null);
-  const [showContainerSelector, setShowContainerSelector] = useState(true);
-  const [activeTab, setActiveTab] = useState('files');
-  const [user, setUser] = useState(null);
-  const [authToken, setAuthToken] = useState(null);
-  const [authLoading, setAuthLoading] = useState(true);
-
-  // Check authentication status on app load
+export default function App() {
+  const [containers, setContainers] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [activeTab, setActiveTab] = useState(() => {
+    // Restore saved active tab or default to 'files'
+    return localStorage.getItem('activeTab') || 'files';
+  })
+  const [selectedContainer, setSelectedContainer] = useState(null)
+  const [showContainerSelector, setShowContainerSelector] = useState(true)
+  
+  // Listen for server selection event
   useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        // Check if we have a token in localStorage
-        const token = localStorage.getItem('pterolite_token');
-        if (token) {
-          api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    const handleContainerSelected = (event) => {
+      setSelectedContainer(event.detail);
+      setShowContainerSelector(false);
+    };
+
+    window.addEventListener('containerSelected', handleContainerSelected);
+    return () => window.removeEventListener('containerSelected', handleContainerSelected);
+  }, []);
+
+  // Validate and restore saved container on mount
+  useEffect(() => {
+    const validateSavedContainer = async () => {
+      const savedContainer = localStorage.getItem('selectedContainer');
+      if (savedContainer) {
+        try {
+          const container = JSON.parse(savedContainer);
+          
+          // Fetch current containers to validate saved container
+          try {
+            const res = await api.get('/containers');
+            const currentContainers = res.data;
+            
+            // Find the saved container in current containers
+            const validContainer = currentContainers.find(c => c.Id === container.Id);
+            
+            if (validContainer) {
+              // Update with current container data (status might have changed)
+              setSelectedContainer(validContainer);
+              setShowContainerSelector(false);
+              localStorage.setItem('selectedContainer', JSON.stringify(validContainer));
+            } else {
+              // Container no longer exists, clear saved data
+              console.warn('Saved container no longer exists, clearing selection');
+              localStorage.removeItem('selectedContainer');
+              setSelectedContainer(null);
+              setShowContainerSelector(true);
+            }
+          } catch (apiError) {
+            console.error('Failed to validate saved container:', apiError);
+            // If API fails, still use saved container but show warning
+            setSelectedContainer(container);
+            setShowContainerSelector(false);
+          }
+        } catch (parseError) {
+          console.error('Failed to parse saved container:', parseError);
+          localStorage.removeItem('selectedContainer');
         }
-        
-        api.defaults.withCredentials = true;
-        
-        // Check authentication status
-        const response = await api.get('/auth/status');
-        
-        if (response.data.authenticated) {
-          setUser(response.data.user);
-          setAuthToken(token || 'authenticated');
-          localStorage.setItem('user', JSON.stringify(response.data.user));
-        } else {
-          // Clear invalid session
-          localStorage.removeItem('user');
-          localStorage.removeItem('pterolite_token');
-          delete api.defaults.headers.common['Authorization'];
-          setUser(null);
-          setAuthToken(null);
-        }
-      } catch (error) {
-        console.error('Auth check failed:', error);
-        // Clear invalid session
-        localStorage.removeItem('user');
-        localStorage.removeItem('pterolite_token');
-        delete api.defaults.headers.common['Authorization'];
-        setUser(null);
-        setAuthToken(null);
-      } finally {
-        setAuthLoading(false);
       }
     };
 
-    checkAuth();
+    validateSavedContainer();
   }, []);
 
-  // Handle login
-  const handleLogin = (userData, token) => {
-    if (token) {
-      localStorage.setItem('pterolite_token', token);
-      api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-    }
-    
-    localStorage.setItem('user', JSON.stringify(userData));
-    setUser(userData);
-    setAuthToken(token || 'authenticated');
-    setAuthLoading(false);
-  };
-
-  // Handle logout
-  const handleLogout = async () => {
-    try {
-      await api.post('/auth/logout', {}, { withCredentials: true });
-    } catch (error) {
-      console.error('Logout error:', error);
-    }
-    
-    // Clear everything
-    localStorage.removeItem('user');
-    localStorage.removeItem('pterolite_token');
-    localStorage.removeItem('selectedContainer');
-    localStorage.removeItem('activeTab');
-    delete api.defaults.headers.common['Authorization'];
-    
-    setUser(null);
-    setAuthToken(null);
-    setSelectedContainer(null);
-    setShowContainerSelector(true);
-    setActiveTab('files');
-  };
-
-  // Load saved state
-  useEffect(() => {
-    if (user) {
-      const savedContainer = localStorage.getItem('selectedContainer');
-      const savedTab = localStorage.getItem('activeTab');
-      
-      if (savedContainer) {
-        try {
-          const parsedContainer = JSON.parse(savedContainer);
-          setSelectedContainer(parsedContainer);
-          setShowContainerSelector(false);
-          // Set activeTab to saved tab or default to 'files' when container is selected
-          setActiveTab(savedTab || 'files');
-        } catch (e) {
-          console.error('Failed to parse saved container:', e);
-          // If parsing fails, clear invalid data and show container selector
-          localStorage.removeItem('selectedContainer');
-          localStorage.removeItem('activeTab');
-          setSelectedContainer(null);
-          setShowContainerSelector(true);
-          setActiveTab('servers');
-        }
-      } else {
-        // No saved container, show container selector and set tab to 'servers'
-        setSelectedContainer(null);
-        setShowContainerSelector(true);
-        setActiveTab('servers');
-      }
-    }
-  }, [user]);
-
-  // Save state when changed
+  // Save selected container to localStorage
   useEffect(() => {
     if (selectedContainer) {
       localStorage.setItem('selectedContainer', JSON.stringify(selectedContainer));
     }
   }, [selectedContainer]);
 
+  // Save active tab to localStorage
   useEffect(() => {
-    if (activeTab) {
-      localStorage.setItem('activeTab', activeTab);
-    }
+    localStorage.setItem('activeTab', activeTab);
   }, [activeTab]);
 
-  const handleContainerSelect = (container) => {
-    setSelectedContainer(container);
-    setShowContainerSelector(false);
-  };
+  // Periodically refresh selected container data
+  useEffect(() => {
+    if (selectedContainer && !showContainerSelector) {
+      const refreshContainer = async () => {
+        try {
+          const res = await api.get('/containers');
+          const currentContainers = res.data;
+          const updatedContainer = currentContainers.find(c => c.Id === selectedContainer.Id);
+          
+          if (updatedContainer) {
+            // Only update if there are changes to avoid unnecessary re-renders
+            if (JSON.stringify(updatedContainer) !== JSON.stringify(selectedContainer)) {
+              setSelectedContainer(updatedContainer);
+            }
+          } else {
+            // Container was deleted, show selector
+            console.warn('Selected container was deleted, showing container selector');
+            setSelectedContainer(null);
+            setShowContainerSelector(true);
+            localStorage.removeItem('selectedContainer');
+          }
+        } catch (error) {
+          console.error('Failed to refresh container data:', error);
+        }
+      };
 
-  const handleBackToSelector = () => {
-    console.log('handleBackToSelector called');
-    setSelectedContainer(null);
+      // Refresh immediately and then every 30 seconds
+      refreshContainer();
+      const interval = setInterval(refreshContainer, 30000);
+      
+      return () => clearInterval(interval);
+    }
+  }, [selectedContainer, showContainerSelector]);
+  
+  const fetchContainers = async () => { 
+    setLoading(true); 
+    try { 
+      const res = await api.get('/containers'); 
+      setContainers(res.data) 
+    } catch(e) {
+      console.error(e)
+    } finally {
+      setLoading(false)
+    }
+  }
+  
+  const startContainer = async (id) => { 
+    await api.post('/containers/'+id+'/start'); 
+    fetchContainers() 
+  }
+  
+  const stopContainer = async (id) => { 
+    await api.post('/containers/'+id+'/stop'); 
+    fetchContainers() 
+  }
+
+  const handleChangeContainer = () => {
     setShowContainerSelector(true);
-    setActiveTab('servers'); // Set active tab to servers when going back
+    setSelectedContainer(null);
     localStorage.removeItem('selectedContainer');
-    localStorage.removeItem('activeTab');
-    console.log('State updated: showContainerSelector=true, selectedContainer=null, activeTab=servers');
   };
 
-  const containerFolder = selectedContainer 
-    ? `/tmp/pterolite-containers/${selectedContainer.Names[0].replace('/', '')}`
-    : '/tmp/pterolite-files';
+  const getContainerFolder = (container) => {
+    if (!container) return '/tmp/pterolite-files';
+    const containerName = container.Names?.[0]?.replace('/', '') || container.Id.substring(0, 12);
+    return `/tmp/pterolite-containers/${containerName}`;
+  };
+  
+  useEffect(() => {
+    if (activeTab === 'containers') {
+      fetchContainers(); 
+      const iv = setInterval(fetchContainers, 5000); 
+      return () => clearInterval(iv)
+    }
+  }, [activeTab])
 
-  // Show loading screen
-  if (authLoading) {
+  // Show container selector if no container is selected
+  if (showContainerSelector || !selectedContainer) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-white">Loading...</p>
-        </div>
-      </div>
+      <ContainerSelector 
+        onContainerSelect={setSelectedContainer}
+        selectedContainer={selectedContainer}
+      />
     );
   }
 
-  // Show login if not authenticated
-  if (!user || !authToken) {
-    return <Login onLogin={handleLogin} />;
-  }
-
-  // Debug logging
-  console.log('App render state:', { 
-    user: !!user, 
-    authToken: !!authToken, 
-    authLoading, 
-    showContainerSelector, 
-    selectedContainer: !!selectedContainer,
-    activeTab 
-  });
-
-  // Show container selector
-  if (showContainerSelector) {
-    console.log('Rendering ContainerSelector');
-    return <ContainerSelector onContainerSelect={handleContainerSelect} selectedContainer={selectedContainer} />;
-  }
-
-  // Main Dashboard
-  return (
-    <div className="min-h-screen bg-gray-900 text-white">
-      {/* Header */}
-      <header className="bg-gray-800 border-b border-gray-700">
-        <div className="max-w-full mx-auto px-6 py-4">
-          <div className="flex justify-between items-center">
-            {/* Left - Dashboard Title */}
-            <div className="flex items-center">
-              <h1 className="text-xl font-bold text-white">PteroLite Dashboard</h1>
-              <p className="text-sm text-gray-400 ml-2">Server Management & Development Environment</p>
+  const renderTabContent = () => {
+    switch (activeTab) {
+      case 'containers':
+        return (
+          <div className="bg-dark-secondary rounded-lg shadow-dark p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold text-white">Docker Servers</h2>
+              <button 
+                onClick={fetchContainers}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                Refresh
+              </button>
             </div>
+            
+            {loading ? (
+              <p className="text-gray-300">Loading servers...</p>
+            ) : containers.length === 0 ? (
+              <p className="text-gray-400">No servers found</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full table-auto">
+                  <thead>
+                    <tr className="bg-dark-tertiary">
+                      <th className="px-4 py-2 text-left text-white">Name</th>
+                      <th className="px-4 py-2 text-left text-white">Image</th>
+                      <th className="px-4 py-2 text-left text-white">Status</th>
+                      <th className="px-4 py-2 text-left text-white">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {containers.map((container) => (
+                      <tr key={container.Id} className="border-t border-dark hover:bg-dark-tertiary transition-colors">
+                        <td className="px-4 py-2 text-gray-300">
+                          {container.Names?.[0]?.replace('/', '') || 'Unnamed'}
+                        </td>
+                        <td className="px-4 py-2 text-gray-300">{container.Image}</td>
+                        <td className="px-4 py-2">
+                          <span className={`px-2 py-1 rounded text-sm ${
+                            container.State === 'running' 
+                              ? 'bg-green-900 text-green-300 border border-green-700' 
+                              : 'bg-red-900 text-red-300 border border-red-700'
+                          }`}>
+                            {container.State}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2">
+                          {container.State === 'running' ? (
+                            <button
+                              onClick={() => stopContainer(container.Id)}
+                              className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700"
+                            >
+                              Stop
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => startContainer(container.Id)}
+                              className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700"
+                            >
+                              Start
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )
+      case 'files':
+        return <FileManager selectedContainer={selectedContainer} containerFolder={getContainerFolder(selectedContainer)} />
+      case 'console':
+        return <Console selectedContainer={selectedContainer} containerFolder={getContainerFolder(selectedContainer)} />
+      case 'docker-images':
+        return <DockerImageManager selectedContainer={selectedContainer} containerFolder={getContainerFolder(selectedContainer)} />
+      default:
+        return null
+    }
+  }
 
-            {/* Center - Current Server */}
-            <div className="flex items-center space-x-4">
-              <div className="text-center">
-                <span className="text-sm text-gray-400">Current Server:</span>
-                <div className="flex items-center space-x-3 mt-1">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-white font-medium text-lg">
-                      {selectedContainer ? selectedContainer.Names[0].replace('/', '') : 'No Server'}
-                    </span>
-                    {selectedContainer && (
-                      <span className="px-2 py-1 bg-green-600 text-xs rounded text-white font-medium">
-                        RUNNING
-                      </span>
-                    )}
-                  </div>
+  return (
+    <div className="min-h-screen bg-dark-primary">
+      <div className="container mx-auto">
+        {/* Header */}
+        <div className="bg-dark-secondary shadow-dark">
+          <div className="px-4 py-4">
+            <div className="flex justify-between items-center">
+              <div>
+                <h1 className="text-3xl font-bold text-white">PteroLite Dashboard</h1>
+                <p className="text-gray-300 mt-1">Container Management & Development Environment</p>
+              </div>
+              <div className="text-right">
+                <div className="text-sm text-gray-300 mb-1">Current Server:</div>
+                <div className="flex items-center space-x-2">
+                  <span className="font-medium text-white">
+                    {selectedContainer.Names?.[0]?.replace('/', '') || 'Unnamed'}
+                  </span>
+                  <span className={`px-2 py-1 rounded text-xs ${
+                    selectedContainer.State === 'running' 
+                      ? 'bg-green-900 text-green-300 border border-green-700' 
+                      : 'bg-red-900 text-red-300 border border-red-700'
+                  }`}>
+                    {selectedContainer.State}
+                  </span>
                   <button
-                    onClick={handleBackToSelector}
-                    className="px-4 py-2 bg-blue-600 text-sm rounded text-white hover:bg-blue-700 transition-colors font-medium border border-blue-500 hover:border-blue-400"
+                    onClick={handleChangeContainer}
+                    className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
                   >
-                    🔄 Change Server
+                    Change Server
                   </button>
                 </div>
-                <div className="text-xs text-gray-500 mt-1">
-                  Working Directory: {containerFolder}
+                <div className="text-xs text-dark-muted mt-1">
+                  Folder: <code className="bg-dark-tertiary px-1 py-0.5 rounded text-dark-primary">{getContainerFolder(selectedContainer)}</code>
                 </div>
               </div>
             </div>
-
-            {/* Right - Panel Info & User */}
-            <div className="text-right">
-              <div className="text-sm font-medium text-white">PteroLite Panel</div>
-              <div className="flex items-center justify-end space-x-2 text-xs mb-1">
-                <span className="text-green-400">Authenticated</span>
-                <span className="px-2 py-1 bg-blue-600 rounded text-white">User: {user.username}</span>
-              </div>
-              <div className="flex items-center justify-end space-x-2">
+          </div>
+          
+          {/* Navigation Tabs */}
+          <div className="border-t border-dark">
+            <nav className="flex space-x-8 px-4">
+              {[
+                { id: 'files', name: 'File Manager', icon: '📁' },
+                { id: 'console', name: 'Console', icon: '💻' },
+                { id: 'docker-images', name: 'Docker Images', icon: '🐳' },
+                { id: 'containers', name: 'All Servers', icon: '📋' }
+              ].map((tab) => (
                 <button
-                  onClick={handleLogout}
-                  className="px-3 py-1 bg-red-600 text-xs rounded text-white hover:bg-red-700 transition-colors"
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                    activeTab === tab.id
+                      ? 'border-blue-400 text-blue-400'
+                      : 'border-transparent text-dark-muted hover:text-dark-secondary hover:border-dark'
+                  }`}
                 >
-                  Logout
+                  <span className="mr-2">{tab.icon}</span>
+                  {tab.name}
                 </button>
-              </div>
-            </div>
+              ))}
+            </nav>
           </div>
         </div>
-      </header>
 
-      {/* Navigation Tabs */}
-      <nav className="bg-gray-800 border-b border-gray-700">
-        <div className="max-w-full mx-auto px-6">
-          <div className="flex space-x-8">
-            {[
-              { id: 'files', label: '📁 File Manager', icon: '📁' },
-              { id: 'console', label: '💻 Console', icon: '💻' },
-              { id: 'tunnels', label: '🌐 CF Tunnels', icon: '🌐' },
-              { id: 'docker', label: '🐳 Docker Images', icon: '🐳' },
-              { id: 'servers', label: '🖥️ My Servers', icon: '🖥️' }
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => {
-                  if (tab.id === 'servers') {
-                    handleBackToSelector();
-                  } else {
-                    setActiveTab(tab.id);
-                  }
-                }}
-                className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                  (activeTab === tab.id && !showContainerSelector) || (tab.id === 'servers' && showContainerSelector)
-                    ? 'border-blue-500 text-blue-400'
-                    : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-500'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
+        {/* Content */}
+        <div className="p-4">
+          {renderTabContent()}
         </div>
-      </nav>
-
-      {/* Main Content */}
-      <main className="max-w-full mx-auto p-6">
-        {activeTab === 'files' && (
-          <FileManager 
-            selectedContainer={selectedContainer} 
-            containerFolder={containerFolder}
-          />
-        )}
-        {activeTab === 'console' && (
-          <Console 
-            selectedContainer={selectedContainer} 
-            containerFolder={containerFolder}
-          />
-        )}
-        {activeTab === 'scripts' && (
-          <ScriptExecutor 
-            selectedContainer={selectedContainer} 
-            containerFolder={containerFolder}
-          />
-        )}
-        {activeTab === 'startup' && (
-          <StartupManager 
-            selectedContainer={selectedContainer} 
-            containerFolder={containerFolder}
-          />
-        )}
-        {activeTab === 'docker' && (
-          <DockerImageManager 
-            selectedContainer={selectedContainer} 
-            containerFolder={containerFolder}
-          />
-        )}
-        {activeTab === 'tunnels' && (
-          <TunnelManager 
-            selectedContainer={selectedContainer} 
-            containerFolder={containerFolder}
-          />
-        )}
-      </main>
+      </div>
     </div>
-  );
+  )
 }
-
-export default App;

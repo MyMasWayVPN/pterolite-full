@@ -8,8 +8,6 @@ const { exec, spawn } = require("child_process");
 const archiver = require("archiver");
 const unzipper = require("unzipper");
 const { v4: uuidv4 } = require("uuid");
-const crypto = require("crypto");
-const jwt = require("jsonwebtoken");
 
 const docker = new Docker({ socketPath: "/var/run/docker.sock" });
 const app = express();
@@ -33,43 +31,7 @@ const upload = multer({ storage: storage });
 app.use(bodyParser.json());
 app.use(express.static('public'));
 
-// Cookie parser middleware (untuk mendukung cookie-based authentication)
-const cookieParser = require('cookie-parser');
-app.use(cookieParser());
-
 const API_KEY = process.env.API_KEY || "supersecretkey";
-const JWT_SECRET = process.env.JWT_SECRET || "defaultjwtsecret";
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
-
-// ===== AUTHENTICATION FUNCTIONS =====
-
-// Hash password function
-function hashPassword(password) {
-  return crypto.createHmac('sha256', JWT_SECRET).update(password).digest('base64');
-}
-
-// Default password hash for "admin123"
-const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH || hashPassword("admin123");
-
-// Verify password function
-function verifyPassword(password, hash) {
-  const computedHash = hashPassword(password);
-  return computedHash === hash;
-}
-
-// Generate JWT token
-function generateToken(username) {
-  return jwt.sign({ username }, JWT_SECRET, { expiresIn: '24h' });
-}
-
-// Verify JWT token
-function verifyToken(token) {
-  try {
-    return jwt.verify(token, JWT_SECRET);
-  } catch (error) {
-    return null;
-  }
-}
 
 // ===== PROCESS MANAGEMENT FOR MULTI-SCRIPT RUNNING =====
 
@@ -278,100 +240,18 @@ const requireAuth = (req, res, next) => {
   next();
 };
 
-// Middleware untuk web panel (dengan JWT authentication)
+// Middleware untuk web panel (tanpa auth requirement)
 const webPanelAuth = (req, res, next) => {
-  // Skip authentication untuk login endpoint
-  if (req.path === '/auth/login') {
-    return next();
-  }
-  
-  const token = req.headers.authorization?.replace('Bearer ', '') || req.cookies?.token;
-  
-  if (!token) {
-    return res.status(401).json({ error: "Authentication required" });
-  }
-  
-  const decoded = verifyToken(token);
-  if (!decoded) {
-    return res.status(401).json({ error: "Invalid or expired token" });
-  }
-  
-  req.user = decoded;
+  // Skip authentication untuk web panel
   next();
 };
 
-// ===== AUTHENTICATION ENDPOINTS =====
-
-// Login endpoint
-app.post("/auth/login", (req, res) => {
-  const { username, password } = req.body;
-  
-  if (!username || !password) {
-    return res.status(400).json({ error: "Username and password required" });
-  }
-  
-  // Check if admin credentials are configured
-  if (!ADMIN_USERNAME || !ADMIN_PASSWORD_HASH) {
-    return res.status(500).json({ error: "Admin credentials not configured" });
-  }
-  
-  // Verify credentials
-  if (username === ADMIN_USERNAME && verifyPassword(password, ADMIN_PASSWORD_HASH)) {
-    const token = generateToken(username);
-    
-    res.json({
-      success: true,
-      message: "Login successful",
-      token: token,
-      user: {
-        username: username,
-        role: "admin"
-      }
-    });
-  } else {
-    res.status(401).json({ error: "Invalid username or password" });
-  }
-});
-
-// Logout endpoint (client-side token removal)
-app.post("/auth/logout", (req, res) => {
-  res.json({
-    success: true,
-    message: "Logout successful"
-  });
-});
-
-// Check authentication status
-app.get("/auth/status", (req, res) => {
-  const token = req.headers.authorization?.replace('Bearer ', '') || req.cookies?.token;
-  
-  if (!token) {
-    return res.json({
-      authenticated: false,
-      user: null
-    });
-  }
-  
-  const decoded = verifyToken(token);
-  if (!decoded) {
-    return res.json({
-      authenticated: false,
-      user: null
-    });
-  }
-  
-  res.json({
-    authenticated: true,
-    user: {
-      username: decoded.username,
-      role: "admin"
-    }
-  });
-});
+// In-memory storage for startup commands (in production, use database)
+const startupCommands = new Map();
 
 // ===== CONTAINER MANAGEMENT ENDPOINTS =====
 
-// Endpoint untuk web panel (dengan JWT authentication)
+// Endpoint untuk web panel (tanpa authentication)
 app.get("/containers", webPanelAuth, async (req, res) => {
   const containers = await docker.listContainers({ all: true });
   res.json(containers);
@@ -427,7 +307,7 @@ app.post("/containers", webPanelAuth, async (req, res) => {
       }
     }
     
-    // Create container folder on host system (but don't mount it)
+    // Create container folder on host system
     const containerFolder = `/tmp/pterolite-containers/${name}`;
     try {
       if (!fs.existsSync(containerFolder)) {
@@ -438,9 +318,9 @@ app.post("/containers", webPanelAuth, async (req, res) => {
       console.warn(`Failed to create container folder: ${folderError.message}`);
     }
     
-    // Create container configuration with the REQUESTED image (without bind mounts)
+    // Create container configuration
     const containerConfig = {
-      Image: image, // Use the actual requested image
+      Image: image,
       name: name,
       Tty: true,
       AttachStdin: true,
@@ -455,34 +335,28 @@ app.post("/containers", webPanelAuth, async (req, res) => {
     if (port) {
       containerConfig.ExposedPorts = {};
       containerConfig.ExposedPorts[`${port}/tcp`] = {};
-      
-      // Initialize HostConfig if not exists
-      if (!containerConfig.HostConfig) {
-        containerConfig.HostConfig = {};
-      }
-      
-      if (!containerConfig.HostConfig.PortBindings) {
-        containerConfig.HostConfig.PortBindings = {};
-      }
+      containerConfig.HostConfig = {
+        PortBindings: {}
+      };
       containerConfig.HostConfig.PortBindings[`${port}/tcp`] = [{ HostPort: port.toString() }];
     }
     
-    // Create the container with the requested image
+    // Create the container
     const container = await docker.createContainer(containerConfig);
     
     // Start the container
     await container.start();
     
-    console.log(`Container ${name} created and started successfully with image: ${image}`);
+    console.log(`Container ${name} created and started successfully`);
     
     res.json({ 
-      message: "Container created & started with requested image", 
+      message: "Container created & started", 
       id: container.id,
       name: name,
-      image: image, // Return the actual image used
+      image: image,
       port: port,
       description: description,
-      note: `Container successfully created with requested image: ${image}`
+      note: `Container created with requested image ${image}`
     });
   } catch (err) {
     console.error("Container creation error:", err);
@@ -672,9 +546,9 @@ app.post("/api/containers", requireAuth, async (req, res) => {
       console.warn(`Failed to create container folder: ${folderError.message}`);
     }
     
-    // Create container configuration with the REQUESTED image (without bind mounts)
+    // Create container configuration
     const containerConfig = {
-      Image: image, // Use the actual requested image
+      Image: image,
       name: name,
       Tty: true,
       AttachStdin: true,
@@ -689,34 +563,28 @@ app.post("/api/containers", requireAuth, async (req, res) => {
     if (port) {
       containerConfig.ExposedPorts = {};
       containerConfig.ExposedPorts[`${port}/tcp`] = {};
-      
-      // Initialize HostConfig if not exists
-      if (!containerConfig.HostConfig) {
-        containerConfig.HostConfig = {};
-      }
-      
-      if (!containerConfig.HostConfig.PortBindings) {
-        containerConfig.HostConfig.PortBindings = {};
-      }
+      containerConfig.HostConfig = {
+        PortBindings: {}
+      };
       containerConfig.HostConfig.PortBindings[`${port}/tcp`] = [{ HostPort: port.toString() }];
     }
     
-    // Create the container with the requested image
+    // Create the container
     const container = await docker.createContainer(containerConfig);
     
     // Start the container
     await container.start();
     
-    console.log(`Container ${name} created and started successfully with image: ${image}`);
+    console.log(`Container ${name} created and started successfully`);
     
     res.json({ 
-      message: "Container created & started with requested image", 
+      message: "Container created & started", 
       id: container.id,
       name: name,
-      image: image, // Return the actual image used
+      image: image,
       port: port,
       description: description,
-      note: `Container successfully created with requested image: ${image}`
+      note: `Container created with requested image ${image}`
     });
   } catch (err) {
     console.error("Container creation error:", err);
@@ -1056,6 +924,57 @@ app.post("/files/mkdir", webPanelAuth, (req, res) => {
   }
 });
 
+// ===== PROCESS MANAGEMENT ENDPOINTS =====
+
+// Get all running processes (optionally filtered by container)
+app.get("/processes", webPanelAuth, (req, res) => {
+  const containerId = req.query.containerId;
+  
+  // Clean up dead processes before returning
+  processManager.cleanupDeadProcesses();
+  
+  const allProcesses = processManager.getAllProcesses();
+  
+  if (containerId) {
+    // Filter processes by container ID
+    const containerProcesses = {};
+    for (const [id, process] of Object.entries(allProcesses)) {
+      if (process.info.containerId === containerId) {
+        containerProcesses[id] = process;
+      }
+    }
+    res.json(containerProcesses);
+  } else {
+    res.json(allProcesses);
+  }
+});
+
+// Get process logs
+app.get("/processes/:id/logs", webPanelAuth, (req, res) => {
+  const { id } = req.params;
+  const limit = parseInt(req.query.limit) || 100;
+  const logs = processManager.getLogs(id, limit);
+  res.json({ processId: id, logs });
+});
+
+// Kill process
+app.post("/processes/:id/kill", webPanelAuth, (req, res) => {
+  const { id } = req.params;
+  const success = processManager.killProcess(id);
+  if (success) {
+    res.json({ success: true, message: "Process killed successfully" });
+  } else {
+    res.status(400).json({ error: "Failed to kill process or process not found" });
+  }
+});
+
+// Remove process from list
+app.delete("/processes/:id", webPanelAuth, (req, res) => {
+  const { id } = req.params;
+  processManager.removeProcess(id);
+  res.json({ success: true, message: "Process removed from list" });
+});
+
 // ===== CONSOLE/TERMINAL ENDPOINTS =====
 
 // Execute command (one-time execution)
@@ -1069,6 +988,342 @@ app.post("/console/execute", webPanelAuth, (req, res) => {
     cwd: workingDir || '/tmp/pterolite-files',
     timeout: 30000, // 30 seconds timeout
     maxBuffer: 1024 * 1024 // 1MB buffer
+  };
+  
+  exec(command, options, (error, stdout, stderr) => {
+    res.json({
+      command,
+      stdout: stdout || '',
+      stderr: stderr || '',
+      error: error ? error.message : null,
+      exitCode: error ? error.code : 0
+    });
+  });
+});
+
+// Run command as persistent process
+app.post("/console/run", webPanelAuth, (req, res) => {
+  const { command, workingDir, name, containerId } = req.body;
+  if (!command) {
+    return res.status(400).json({ error: "Command required" });
+  }
+  
+  const processId = uuidv4();
+  
+  try {
+    const process = spawn('bash', ['-c', command], {
+      cwd: workingDir || '/tmp/pterolite-files',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      detached: true // Create a new process group
+    });
+    
+    const processInfo = {
+      id: processId,
+      name: name || `Command: ${command.substring(0, 50)}`,
+      type: 'command',
+      command: command,
+      workingDir: workingDir || '/tmp/pterolite-files',
+      containerId: containerId || null
+    };
+    
+    processManager.addProcess(processId, process, processInfo);
+    processManager.addLog(processId, 'system', `Command process started: ${command} (PID: ${process.pid})`);
+    
+    res.json({
+      success: true,
+      processId,
+      message: "Command process started successfully"
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== STARTUP COMMAND MANAGEMENT =====
+
+// Get all startup commands
+app.get("/startup-commands", webPanelAuth, (req, res) => {
+  const commands = Array.from(startupCommands.values());
+  res.json({ commands });
+});
+
+// Save startup command
+app.post("/startup-commands", webPanelAuth, (req, res) => {
+  const { id, name, command, workingDir, autoStart, description } = req.body;
+  
+  if (!name || !command) {
+    return res.status(400).json({ error: "Name and command are required" });
+  }
+  
+  const commandId = id || uuidv4();
+  const startupCommand = {
+    id: commandId,
+    name,
+    command,
+    workingDir: workingDir || '/tmp/pterolite-files',
+    autoStart: autoStart || false,
+    description: description || '',
+    createdAt: new Date(),
+    updatedAt: new Date()
+  };
+  
+  startupCommands.set(commandId, startupCommand);
+  
+  res.json({
+    success: true,
+    message: "Startup command saved successfully",
+    command: startupCommand
+  });
+});
+
+// Delete startup command
+app.delete("/startup-commands/:id", webPanelAuth, (req, res) => {
+  const { id } = req.params;
+  
+  if (startupCommands.has(id)) {
+    startupCommands.delete(id);
+    res.json({ success: true, message: "Startup command deleted successfully" });
+  } else {
+    res.status(404).json({ error: "Startup command not found" });
+  }
+});
+
+// Run startup command
+app.post("/startup-commands/:id/run", webPanelAuth, (req, res) => {
+  const { id } = req.params;
+  const startupCommand = startupCommands.get(id);
+  
+  if (!startupCommand) {
+    return res.status(404).json({ error: "Startup command not found" });
+  }
+  
+  const processId = uuidv4();
+  
+  try {
+    const process = spawn('bash', ['-c', startupCommand.command], {
+      cwd: startupCommand.workingDir,
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    
+    const processInfo = {
+      id: processId,
+      name: startupCommand.name,
+      type: 'startup-command',
+      command: startupCommand.command,
+      workingDir: startupCommand.workingDir,
+      startupCommandId: id
+    };
+    
+    processManager.addProcess(processId, process, processInfo);
+    processManager.addLog(processId, 'system', `Startup command executed: ${startupCommand.name}`);
+    
+    res.json({
+      success: true,
+      processId,
+      message: `Startup command "${startupCommand.name}" started successfully`
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== SCRIPT EXECUTOR ENDPOINTS =====
+
+// Execute JavaScript (one-time)
+app.post("/scripts/javascript", webPanelAuth, (req, res) => {
+  const { code, workingDir } = req.body;
+  if (!code) {
+    return res.status(400).json({ error: "JavaScript code required" });
+  }
+  
+  // Create temporary JS file
+  const tempFile = path.join('/tmp', `pterolite-js-${Date.now()}.js`);
+  
+  try {
+    fs.writeFileSync(tempFile, code);
+    
+    const options = {
+      cwd: workingDir || '/tmp/pterolite-files',
+      timeout: 30000
+    };
+    
+    exec(`node ${tempFile}`, options, (error, stdout, stderr) => {
+      // Clean up temp file
+      try {
+        fs.unlinkSync(tempFile);
+      } catch (e) {}
+      
+      res.json({
+        language: 'javascript',
+        stdout: stdout || '',
+        stderr: stderr || '',
+        error: error ? error.message : null,
+        exitCode: error ? error.code : 0
+      });
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Execute Python (one-time)
+app.post("/scripts/python", webPanelAuth, (req, res) => {
+  const { code, workingDir } = req.body;
+  if (!code) {
+    return res.status(400).json({ error: "Python code required" });
+  }
+  
+  // Create temporary Python file
+  const tempFile = path.join('/tmp', `pterolite-py-${Date.now()}.py`);
+  
+  try {
+    fs.writeFileSync(tempFile, code);
+    
+    const options = {
+      cwd: workingDir || '/tmp/pterolite-files',
+      timeout: 30000
+    };
+    
+    exec(`python3 ${tempFile}`, options, (error, stdout, stderr) => {
+      // Clean up temp file
+      try {
+        fs.unlinkSync(tempFile);
+      } catch (e) {}
+      
+      res.json({
+        language: 'python',
+        stdout: stdout || '',
+        stderr: stderr || '',
+        error: error ? error.message : null,
+        exitCode: error ? error.code : 0
+      });
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Run JavaScript as persistent process
+app.post("/scripts/javascript/run", webPanelAuth, (req, res) => {
+  const { code, workingDir, name } = req.body;
+  if (!code) {
+    return res.status(400).json({ error: "JavaScript code required" });
+  }
+  
+  const processId = uuidv4();
+  const tempFile = path.join('/tmp', `pterolite-js-${processId}.js`);
+  
+  try {
+    fs.writeFileSync(tempFile, code);
+    
+    const process = spawn('node', [tempFile], {
+      cwd: workingDir || '/tmp/pterolite-files',
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    
+    const processInfo = {
+      id: processId,
+      name: name || `JavaScript Script`,
+      language: 'javascript',
+      file: tempFile,
+      workingDir: workingDir || '/tmp/pterolite-files'
+    };
+    
+    processManager.addProcess(processId, process, processInfo);
+    processManager.addLog(processId, 'system', `JavaScript process started: ${name || 'Unnamed Script'}`);
+    
+    // Clean up temp file when process ends
+    process.on('close', () => {
+      try {
+        fs.unlinkSync(tempFile);
+      } catch (e) {}
+    });
+    
+    res.json({
+      success: true,
+      processId,
+      message: "JavaScript process started successfully"
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Run Python as persistent process
+app.post("/scripts/python/run", webPanelAuth, (req, res) => {
+  const { code, workingDir, name } = req.body;
+  if (!code) {
+    return res.status(400).json({ error: "Python code required" });
+  }
+  
+  const processId = uuidv4();
+  const tempFile = path.join('/tmp', `pterolite-py-${processId}.py`);
+  
+  try {
+    fs.writeFileSync(tempFile, code);
+    
+    const process = spawn('python3', [tempFile], {
+      cwd: workingDir || '/tmp/pterolite-files',
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    
+    const processInfo = {
+      id: processId,
+      name: name || `Python Script`,
+      language: 'python',
+      file: tempFile,
+      workingDir: workingDir || '/tmp/pterolite-files'
+    };
+    
+    processManager.addProcess(processId, process, processInfo);
+    processManager.addLog(processId, 'system', `Python process started: ${name || 'Unnamed Script'}`);
+    
+    // Clean up temp file when process ends
+    process.on('close', () => {
+      try {
+        fs.unlinkSync(tempFile);
+      } catch (e) {}
+    });
+    
+    res.json({
+      success: true,
+      processId,
+      message: "Python process started successfully"
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ===== DOCKER IMAGE MANAGEMENT ENDPOINTS =====
+
+// Get available Docker images on system
+app.get("/docker/images", webPanelAuth, async (req, res) => {
+  try {
+    const images = await docker.listImages();
+    const formattedImages = images.map(image => ({
+      id: image.Id,
+      repoTags: image.RepoTags || ['<none>:<none>'],
+      created: new Date(image.Created * 1000),
+      size: image.Size,
+      virtualSize: image.VirtualSize
+    }));
+    res.json(formattedImages);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Execute Docker command (for image management)
+app.post("/docker/execute", webPanelAuth, (req, res) => {
+  const { command } = req.body;
+  if (!command) {
+    return res.status(400).json({ error: "Docker command required" });
+  }
+  
+  const options = {
+    timeout: 300000, // 5 minutes timeout for Docker operations
+    maxBuffer: 10 * 1024 * 1024 // 10MB buffer
   };
   
   exec(command, options, (error, stdout, stderr) => {
