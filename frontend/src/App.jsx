@@ -103,18 +103,23 @@ function App() {
       
       if (savedContainer) {
         try {
-          setSelectedContainer(JSON.parse(savedContainer));
+          const parsedContainer = JSON.parse(savedContainer);
+          setSelectedContainer(parsedContainer);
           setShowContainerSelector(false);
           // Set activeTab to saved tab or default to 'files' when container is selected
           setActiveTab(savedTab || 'files');
         } catch (e) {
           console.error('Failed to parse saved container:', e);
-          // If no saved container, show container selector and set tab to 'servers'
+          // If parsing fails, clear invalid data and show container selector
+          localStorage.removeItem('selectedContainer');
+          localStorage.removeItem('activeTab');
+          setSelectedContainer(null);
           setShowContainerSelector(true);
           setActiveTab('servers');
         }
       } else {
         // No saved container, show container selector and set tab to 'servers'
+        setSelectedContainer(null);
         setShowContainerSelector(true);
         setActiveTab('servers');
       }
@@ -140,10 +145,13 @@ function App() {
   };
 
   const handleBackToSelector = () => {
-    setShowContainerSelector(true);
+    console.log('handleBackToSelector called');
     setSelectedContainer(null);
+    setShowContainerSelector(true);
     setActiveTab('servers'); // Set active tab to servers when going back
     localStorage.removeItem('selectedContainer');
+    localStorage.removeItem('activeTab');
+    console.log('State updated: showContainerSelector=true, selectedContainer=null, activeTab=servers');
   };
 
   const containerFolder = selectedContainer 
@@ -167,9 +175,20 @@ function App() {
     return <Login onLogin={handleLogin} />;
   }
 
+  // Debug logging
+  console.log('App render state:', { 
+    user: !!user, 
+    authToken: !!authToken, 
+    authLoading, 
+    showContainerSelector, 
+    selectedContainer: !!selectedContainer,
+    activeTab 
+  });
+
   // Show container selector
   if (showContainerSelector) {
-    return <ContainerSelector onContainerSelect={handleContainerSelect} />;
+    console.log('Rendering ContainerSelector');
+    return <ContainerSelector onContainerSelect={handleContainerSelect} selectedContainer={selectedContainer} />;
   }
 
   // Main Dashboard
@@ -254,7 +273,7 @@ function App() {
                   }
                 }}
                 className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                  (activeTab === tab.id) || (tab.id === 'servers' && showContainerSelector)
+                  (activeTab === tab.id && !showContainerSelector) || (tab.id === 'servers' && showContainerSelector)
                     ? 'border-blue-500 text-blue-400'
                     : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-500'
                 }`}
