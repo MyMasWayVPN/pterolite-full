@@ -105,13 +105,18 @@ function App() {
         try {
           setSelectedContainer(JSON.parse(savedContainer));
           setShowContainerSelector(false);
+          // Set activeTab to saved tab or default to 'files' when container is selected
+          setActiveTab(savedTab || 'files');
         } catch (e) {
           console.error('Failed to parse saved container:', e);
+          // If no saved container, show container selector and set tab to 'servers'
+          setShowContainerSelector(true);
+          setActiveTab('servers');
         }
-      }
-      
-      if (savedTab) {
-        setActiveTab(savedTab);
+      } else {
+        // No saved container, show container selector and set tab to 'servers'
+        setShowContainerSelector(true);
+        setActiveTab('servers');
       }
     }
   }, [user]);
@@ -137,6 +142,7 @@ function App() {
   const handleBackToSelector = () => {
     setShowContainerSelector(true);
     setSelectedContainer(null);
+    setActiveTab('servers'); // Set active tab to servers when going back
     localStorage.removeItem('selectedContainer');
   };
 
@@ -248,7 +254,7 @@ function App() {
                   }
                 }}
                 className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                  activeTab === tab.id
+                  (activeTab === tab.id) || (tab.id === 'servers' && showContainerSelector)
                     ? 'border-blue-500 text-blue-400'
                     : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-500'
                 }`}
