@@ -23,26 +23,31 @@ export default function App() {
   // Check authentication status on app load
   useEffect(() => {
     const checkAuth = async () => {
-      const savedUser = localStorage.getItem('user');
-      
       try {
+        // First check if we have a token in localStorage
+        const token = localStorage.getItem('pterolite_token');
+        if (token) {
+          // Set the authorization header
+          api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+        }
+        
         // Configure api to always send cookies
         api.defaults.withCredentials = true;
         
-        // Check authentication status via cookie
+        // Check authentication status
         const response = await api.get('/auth/status');
         
         if (response.data.authenticated) {
           setUser(response.data.user);
-          setAuthToken('cookie-based'); // We don't store actual token for cookie auth
+          setAuthToken(token || 'cookie-based');
           
           // Update saved user if different
-          if (savedUser !== JSON.stringify(response.data.user)) {
-            localStorage.setItem('user', JSON.stringify(response.data.user));
-          }
+          localStorage.setItem('user', JSON.stringify(response.data.user));
         } else {
           // Not authenticated, clear storage
           localStorage.removeItem('user');
+          localStorage.removeItem('pterolite_token');
+          delete api.defaults.headers.common['Authorization'];
           setUser(null);
           setAuthToken(null);
         }
@@ -50,6 +55,8 @@ export default function App() {
         console.error('Auth check failed:', error);
         // Clear invalid session
         localStorage.removeItem('user');
+        localStorage.removeItem('pterolite_token');
+        delete api.defaults.headers.common['Authorization'];
         setUser(null);
         setAuthToken(null);
       }
@@ -62,6 +69,16 @@ export default function App() {
 
   // Handle login
   const handleLogin = (userData, token) => {
+    // Store token in localStorage for persistence
+    if (token) {
+      localStorage.setItem('pterolite_token', token);
+      // Set axios default authorization header
+      api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    }
+    
+    // Store user data
+    localStorage.setItem('user', JSON.stringify(userData));
+    
     setUser(userData);
     setAuthToken(token || 'cookie-based');
   };
@@ -75,8 +92,12 @@ export default function App() {
     } finally {
       // Clear local storage and state
       localStorage.removeItem('user');
+      localStorage.removeItem('pterolite_token');
       localStorage.removeItem('selectedContainer');
       localStorage.removeItem('activeTab');
+      
+      // Clear axios authorization header
+      delete api.defaults.headers.common['Authorization'];
       
       setUser(null);
       setAuthToken(null);

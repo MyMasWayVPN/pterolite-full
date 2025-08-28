@@ -40,7 +40,6 @@ app.use(cookieParser());
 const API_KEY = process.env.API_KEY || "supersecretkey";
 const JWT_SECRET = process.env.JWT_SECRET || "defaultjwtsecret";
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
-const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH || "";
 
 // ===== AUTHENTICATION FUNCTIONS =====
 
@@ -48,6 +47,9 @@ const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH || "";
 function hashPassword(password) {
   return crypto.createHmac('sha256', JWT_SECRET).update(password).digest('base64');
 }
+
+// Default password hash for "admin123"
+const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH || hashPassword("admin123");
 
 // Verify password function
 function verifyPassword(password, hash) {
@@ -279,7 +281,7 @@ const requireAuth = (req, res, next) => {
 // Middleware untuk web panel (dengan JWT authentication)
 const webPanelAuth = (req, res, next) => {
   // Skip authentication untuk login endpoint
-  if (req.path === '/auth/login' || req.path === '/auth/status') {
+  if (req.path === '/auth/login') {
     return next();
   }
   
