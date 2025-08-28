@@ -15,9 +15,10 @@ export default function App() {
   const [selectedContainer, setSelectedContainer] = useState(null)
   const [showContainerSelector, setShowContainerSelector] = useState(true)
   
-  // Listen for server selection event
+  // Listen for server selection event (simplified)
   useEffect(() => {
     const handleContainerSelected = (event) => {
+      console.log('Container selected via event:', event.detail);
       setSelectedContainer(event.detail);
       setShowContainerSelector(false);
     };
@@ -158,17 +159,11 @@ export default function App() {
     }
   }, [activeTab])
 
-  // Handle container selection from ContainerSelector
-  const handleContainerSelect = (container) => {
-    setSelectedContainer(container);
-    setShowContainerSelector(false);
-  };
-
   // Show container selector if no container is selected
   if (showContainerSelector || !selectedContainer) {
     return (
       <ContainerSelector 
-        onContainerSelect={handleContainerSelect}
+        onContainerSelect={() => {}} // Empty function since we use custom events
         selectedContainer={selectedContainer}
       />
     );
