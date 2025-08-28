@@ -124,7 +124,9 @@ function App() {
   }, [selectedContainer]);
 
   useEffect(() => {
-    localStorage.setItem('activeTab', activeTab);
+    if (activeTab) {
+      localStorage.setItem('activeTab', activeTab);
+    }
   }, [activeTab]);
 
   const handleContainerSelect = (container) => {
