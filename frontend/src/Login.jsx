@@ -1,143 +1,130 @@
-import React, { useState } from 'react';
-import { login } from './api.js';
+import { useState } from 'react';
+import { api } from './api.js';
 
-const Login = ({ onLogin }) => {
-  const [formData, setFormData] = useState({
+export default function Login({ onLogin }) {
+  const [credentials, setCredentials] = useState({
     username: '',
     password: ''
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
-    // Clear error when user starts typing
-    if (error) setError('');
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    if (!formData.username || !formData.password) {
-      setError('Please enter both username and password');
-      return;
-    }
-
     setLoading(true);
     setError('');
 
     try {
-      const response = await login(formData.username, formData.password);
+      const response = await api.post('/auth/login', credentials);
       
-      if (response.success) {
-        // Store token and user info
-        localStorage.setItem('authToken', response.token);
-        localStorage.setItem('user', JSON.stringify(response.user));
+      if (response.data.success) {
+        // Store token in localStorage
+        localStorage.setItem('authToken', response.data.token);
+        localStorage.setItem('user', JSON.stringify(response.data.user));
+        
+        // Set token in api headers for future requests
+        api.defaults.headers.common['Authorization'] = `Bearer ${response.data.token}`;
         
         // Call onLogin callback
-        onLogin(response.user);
+        onLogin(response.data.user, response.data.token);
       } else {
-        setError('Login failed. Please try again.');
+        setError(response.data.error || 'Login failed');
       }
-    } catch (error) {
-      console.error('Login error:', error);
-      setError(error.response?.data?.error || 'Login failed. Please check your credentials.');
+    } catch (err) {
+      console.error('Login error:', err);
+      setError(err.response?.data?.error || 'Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
+  const handleChange = (e) => {
+    setCredentials({
+      ...credentials,
+      [e.target.name]: e.target.value
+    });
+  };
+
   return (
     <div className="min-h-screen bg-dark-primary flex items-center justify-center">
-      <div className="max-w-md w-full mx-4">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="text-6xl mb-4">🐳</div>
-          <h1 className="text-3xl font-bold text-white mb-2">PteroLite</h1>
-          <p className="text-gray-300">Server Management Panel</p>
+      <div className="max-w-md w-full space-y-8 p-8">
+        <div>
+          <div className="mx-auto h-12 w-12 flex items-center justify-center rounded-full bg-blue-600">
+            <span className="text-2xl">🐳</span>
+          </div>
+          <h2 className="mt-6 text-center text-3xl font-extrabold text-white">
+            Sign in to PteroLite
+          </h2>
+          <p className="mt-2 text-center text-sm text-gray-400">
+            Container Management & Development Environment
+          </p>
         </div>
-
-        {/* Login Form */}
-        <div className="bg-dark-secondary rounded-lg shadow-dark p-6 border border-dark">
-          <h2 className="text-xl font-semibold text-white mb-6 text-center">Sign In</h2>
-          
+        
+        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           {error && (
-            <div className="bg-red-900 bg-opacity-30 border border-red-700 text-red-300 px-4 py-3 rounded mb-4">
+            <div className="bg-red-900 bg-opacity-30 border border-red-700 text-red-300 px-4 py-3 rounded">
               {error}
             </div>
           )}
-
-          <form onSubmit={handleSubmit} className="space-y-4">
+          
+          <div className="space-y-4">
             <div>
-              <label htmlFor="username" className="block text-sm font-medium text-gray-300 mb-1">
+              <label htmlFor="username" className="block text-sm font-medium text-gray-300 mb-2">
                 Username
               </label>
               <input
-                type="text"
                 id="username"
                 name="username"
-                value={formData.username}
+                type="text"
+                required
+                value={credentials.username}
                 onChange={handleChange}
                 className="w-full px-3 py-2 bg-dark-tertiary border border-dark text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="Enter your username"
-                disabled={loading}
               />
             </div>
-
+            
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-300 mb-1">
+              <label htmlFor="password" className="block text-sm font-medium text-gray-300 mb-2">
                 Password
               </label>
               <input
-                type="password"
                 id="password"
                 name="password"
-                value={formData.password}
+                type="password"
+                required
+                value={credentials.password}
                 onChange={handleChange}
                 className="w-full px-3 py-2 bg-dark-tertiary border border-dark text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="Enter your password"
-                disabled={loading}
               />
             </div>
+          </div>
 
+          <div>
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-medium rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-dark-secondary"
+              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (
-                <div className="flex items-center justify-center">
+                <div className="flex items-center">
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                  Signing In...
+                  Signing in...
                 </div>
               ) : (
-                'Sign In'
+                'Sign in'
               )}
             </button>
-          </form>
-
-          {/* Footer */}
-          <div className="mt-6 text-center">
-            <p className="text-sm text-gray-400">
-              Welcome to PteroLite Server Management
-            </p>
           </div>
-        </div>
-
-        {/* Help Section */}
-        <div className="mt-6 bg-blue-900 bg-opacity-30 border border-blue-700 rounded-lg p-4">
-          <h4 className="font-semibold text-blue-300 mb-2">🔐 Authentication Required</h4>
-          <p className="text-sm text-blue-200">
-            Please sign in with your credentials to access the server management panel. 
-            Contact your administrator if you need access.
+        </form>
+        
+        <div className="text-center">
+          <p className="text-xs text-gray-500">
+            PteroLite v2.0 - Secure Container Management
           </p>
         </div>
       </div>
     </div>
   );
-};
-
-export default Login;
+}

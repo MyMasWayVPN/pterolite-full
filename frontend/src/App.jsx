@@ -5,6 +5,7 @@ import Console from './Console.jsx'
 import DockerImageManager from './DockerImageManager.jsx'
 import ContainerSelector from './ContainerSelector.jsx'
 import TunnelManager from './TunnelManager.jsx'
+import Login from './Login.jsx'
 
 export default function App() {
   const [containers, setContainers] = useState([])
@@ -15,6 +16,92 @@ export default function App() {
   })
   const [selectedContainer, setSelectedContainer] = useState(null)
   const [showContainerSelector, setShowContainerSelector] = useState(true)
+  const [user, setUser] = useState(null)
+  const [authToken, setAuthToken] = useState(null)
+  const [authLoading, setAuthLoading] = useState(true)
+
+  // Check authentication status on app load
+  useEffect(() => {
+    const checkAuth = async () => {
+      const savedToken = localStorage.getItem('authToken');
+      const savedUser = localStorage.getItem('user');
+      
+      if (savedToken && savedUser) {
+        try {
+          // Set token in api headers
+          api.defaults.headers.common['Authorization'] = `Bearer ${savedToken}`;
+          
+          // Verify token is still valid
+          const response = await api.get('/auth/status');
+          
+          if (response.data.authenticated) {
+            setAuthToken(savedToken);
+            setUser(JSON.parse(savedUser));
+          } else {
+            // Token is invalid, clear storage
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('user');
+            delete api.defaults.headers.common['Authorization'];
+          }
+        } catch (error) {
+          console.error('Auth check failed:', error);
+          // Clear invalid token
+          localStorage.removeItem('authToken');
+          localStorage.removeItem('user');
+          delete api.defaults.headers.common['Authorization'];
+        }
+      }
+      
+      setAuthLoading(false);
+    };
+
+    checkAuth();
+  }, []);
+
+  // Handle login
+  const handleLogin = (userData, token) => {
+    setUser(userData);
+    setAuthToken(token);
+  };
+
+  // Handle logout
+  const handleLogout = async () => {
+    try {
+      await api.post('/auth/logout');
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      // Clear local storage and state
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('user');
+      localStorage.removeItem('selectedContainer');
+      localStorage.removeItem('activeTab');
+      delete api.defaults.headers.common['Authorization'];
+      
+      setUser(null);
+      setAuthToken(null);
+      setSelectedContainer(null);
+      setShowContainerSelector(true);
+      setActiveTab('files');
+    }
+  };
+
+  // Show loading screen while checking authentication
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-dark-primary flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-gray-300">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show login screen if not authenticated
+  if (!user || !authToken) {
+    return <Login onLogin={handleLogin} />;
+  }
 
   // Listen for server selection event
   useEffect(() => {
@@ -293,17 +380,23 @@ export default function App() {
                   </div>
                 )}
                 
-                {/* Simple Info */}
+                {/* User Info */}
                 <div className="text-right border-l border-dark pl-6">
-                  <div className="text-sm text-gray-300 mb-1">PteroLite Panel</div>
+                  <div className="text-sm text-gray-300 mb-1">Logged in as:</div>
                   <div className="flex items-center space-x-2">
-                    <span className="font-medium text-white">No Authentication</span>
-                    <span className="px-2 py-1 rounded text-xs bg-green-900 text-green-300 border border-green-700">
-                      Open Access
+                    <span className="font-medium text-white">{user.username}</span>
+                    <span className="px-2 py-1 rounded text-xs bg-blue-900 text-blue-300 border border-blue-700">
+                      {user.role || 'Admin'}
                     </span>
+                    <button
+                      onClick={handleLogout}
+                      className="px-3 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                    >
+                      Logout
+                    </button>
                   </div>
                   <div className="text-xs text-dark-muted mt-1">
-                    Direct container management
+                    Secure authenticated session
                   </div>
                 </div>
               </div>
