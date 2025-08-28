@@ -147,7 +147,7 @@ function App() {
   // Show loading screen
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-dark-primary flex items-center justify-center">
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
           <p className="text-white">Loading...</p>
@@ -163,88 +163,85 @@ function App() {
 
   // Show container selector
   if (showContainerSelector) {
-    return (
-      <div className="min-h-screen bg-dark-primary">
-        {/* Header */}
-        <header className="bg-dark-secondary shadow-dark border-b border-dark">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center py-4">
-              <div className="flex items-center">
-                <span className="text-2xl mr-3">🐳</span>
-                <h1 className="text-xl font-bold text-white">PteroLite</h1>
-              </div>
-              <div className="flex items-center space-x-4">
-                <span className="text-gray-300">Welcome, {user.username}</span>
-                <button
-                  onClick={handleLogout}
-                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
-                >
-                  Logout
-                </button>
-              </div>
-            </div>
-          </div>
-        </header>
-
-        <ContainerSelector onContainerSelect={handleContainerSelect} />
-      </div>
-    );
+    return <ContainerSelector onContainerSelect={handleContainerSelect} />;
   }
 
-  // Show main dashboard
+  // Main Dashboard
   return (
-    <div className="min-h-screen bg-dark-primary">
+    <div className="min-h-screen bg-gray-900 text-white">
       {/* Header */}
-      <header className="bg-dark-secondary shadow-dark border-b border-dark">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
+      <header className="bg-gray-800 border-b border-gray-700">
+        <div className="max-w-full mx-auto px-6 py-4">
+          <div className="flex justify-between items-center">
+            {/* Left - Dashboard Title */}
             <div className="flex items-center">
-              <button
-                onClick={handleBackToSelector}
-                className="mr-4 px-3 py-1 bg-gray-600 text-white rounded hover:bg-gray-700"
-              >
-                ← Back
-              </button>
-              <span className="text-2xl mr-3">🐳</span>
-              <h1 className="text-xl font-bold text-white">PteroLite</h1>
-              {selectedContainer && (
-                <span className="ml-4 text-gray-300">
-                  Container: {selectedContainer.Names[0].replace('/', '')}
-                </span>
-              )}
+              <h1 className="text-xl font-bold text-white">PteroLite Dashboard</h1>
+              <p className="text-sm text-gray-400 ml-2">Server Management & Development Environment</p>
             </div>
+
+            {/* Center - Current Server */}
             <div className="flex items-center space-x-4">
-              <span className="text-gray-300">Welcome, {user.username}</span>
-              <button
-                onClick={handleLogout}
-                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
-              >
-                Logout
-              </button>
+              <div className="text-center">
+                <span className="text-sm text-gray-400">Current Server:</span>
+                <div className="flex items-center space-x-2">
+                  <span className="text-white font-medium">
+                    {selectedContainer ? selectedContainer.Names[0].replace('/', '') : 'No Server'}
+                  </span>
+                  {selectedContainer && (
+                    <>
+                      <span className="px-2 py-1 bg-green-600 text-xs rounded text-white">running</span>
+                      <button
+                        onClick={handleBackToSelector}
+                        className="px-3 py-1 bg-blue-600 text-xs rounded text-white hover:bg-blue-700"
+                      >
+                        Change Server
+                      </button>
+                    </>
+                  )}
+                </div>
+                <div className="text-xs text-gray-500">
+                  Folder: {containerFolder}
+                </div>
+              </div>
+            </div>
+
+            {/* Right - Panel Info */}
+            <div className="text-right">
+              <div className="text-sm font-medium text-white">PteroLite Panel</div>
+              <div className="flex items-center space-x-2 text-xs">
+                <span className="text-red-400">No Authentication</span>
+                <span className="px-2 py-1 bg-green-600 rounded text-white">Open Access</span>
+              </div>
+              <div className="text-xs text-gray-400">Direct container management</div>
             </div>
           </div>
         </div>
       </header>
 
       {/* Navigation Tabs */}
-      <nav className="bg-dark-secondary border-b border-dark">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <nav className="bg-gray-800 border-b border-gray-700">
+        <div className="max-w-full mx-auto px-6">
           <div className="flex space-x-8">
             {[
-              { id: 'files', label: '📁 Files', icon: '📁' },
+              { id: 'files', label: '📁 File Manager', icon: '📁' },
               { id: 'console', label: '💻 Console', icon: '💻' },
-              { id: 'scripts', label: '⚡ Scripts', icon: '⚡' },
-              { id: 'startup', label: '🚀 Startup', icon: '🚀' },
-              { id: 'docker', label: '🐳 Docker', icon: '🐳' },
-              { id: 'tunnels', label: '🌐 Tunnels', icon: '🌐' }
+              { id: 'tunnels', label: '🌐 CF Tunnels', icon: '🌐' },
+              { id: 'docker', label: '🐳 Docker Images', icon: '🐳' },
+              { id: 'servers', label: '🖥️ My Servers', icon: '🖥️' }
             ].map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                onClick={() => {
+                  if (tab.id === 'servers') {
+                    handleBackToSelector();
+                  } else {
+                    setActiveTab(tab.id);
+                  }
+                }}
+                className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
                   activeTab === tab.id
                     ? 'border-blue-500 text-blue-400'
-                    : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
+                    : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-500'
                 }`}
               >
                 {tab.label}
@@ -255,7 +252,7 @@ function App() {
       </nav>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+      <main className="max-w-full mx-auto p-6">
         {activeTab === 'files' && (
           <FileManager 
             selectedContainer={selectedContainer} 
