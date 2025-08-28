@@ -44,21 +44,21 @@ check_root() {
 # Show main menu
 show_main_menu() {
     clear
-    echo -e "${PURPLE}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${PURPLE}║                    🐳 PteroLite Manager                      ║${NC}"
-    echo -e "${PURPLE}║                  Complete Installation Tool                  ║${NC}"
-    echo -e "${PURPLE}║                     (GitHub Curl Version)                   ║${NC}"
-    echo -e "${PURPLE}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║                    🐳 PteroLite Manager                      ║${NC}"
+    echo -e "${CYAN}║                  Complete Installation Tool                  ║${NC}"
+    echo -e "${CYAN}║                     (GitHub Curl Version)                   ║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "${CYAN}Choose an option:${NC}"
     echo ""
-    echo -e "${GREEN}1)${NC} 🆕 Fresh Install - Install PteroLite for the first time"
-    echo -e "${BLUE}2)${NC} 🔄 Reinstall - Reinstall PteroLite (preserves configuration)"
+    echo -e "${YELLOW}1)${NC} 🆕 Fresh Install - Install PteroLite for the first time"
+    echo -e "${YELLOW}2)${NC} 🔄 Reinstall - Reinstall PteroLite (preserves configuration)"
     echo -e "${YELLOW}3)${NC} ⬆️  Update - Update PteroLite to latest version"
-    echo -e "${PURPLE}4)${NC} ℹ️  Status - Check PteroLite installation status"
-    echo -e "${CYAN}5)${NC} 🔧 Manage Services - Start/Stop/Restart services"
-    echo -e "${RED}6)${NC} 🗑️  Uninstall - Completely remove PteroLite"
-    echo -e "${GREEN}0)${NC} ❌ Exit"
+    echo -e "${YELLOW}4)${NC} ℹ️  Status - Check PteroLite installation status"
+    echo -e "${YELLOW}5)${NC} 🔧 Manage Services - Start/Stop/Restart services"
+    echo -e "${YELLOW}6)${NC} 🗑️  Uninstall - Completely remove PteroLite"
+    echo -e "${YELLOW}0)${NC} ❌ Exit"
     echo ""
 }
 
@@ -288,7 +288,9 @@ uninstall() {
     echo "• Frontend files (/var/www/pterolite)"
     echo "• Systemd service"
     echo "• Nginx configuration"
-    echo "• All containers and data"
+    echo "• All Docker containers created by PteroLite"
+    echo "• All container data and files"
+    echo "• Docker images (optional)"
     echo ""
     
     read -p "Are you sure you want to uninstall PteroLite? Type 'UNINSTALL' to confirm: " confirm
@@ -298,6 +300,23 @@ uninstall() {
         return
     fi
     
+    # Run the uninstall script using curl (same pattern as install/reinstall/update)
+    log_step "Executing uninstall script from GitHub..."
+    echo ""
+    
+    if bash <(curl -s https://raw.githubusercontent.com/MyMasWayVPN/pterolite-full/main/uninstall_pterolite.sh); then
+        log_success "Uninstall completed successfully!"
+    else
+        log_error "Uninstall script failed, falling back to manual cleanup..."
+        manual_uninstall
+    fi
+    
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
+# Manual uninstall fallback
+manual_uninstall() {
     log_step "Creating final backup before uninstall..."
     FINAL_BACKUP="/opt/pterolite-final-backup-$(date +%Y%m%d_%H%M%S)"
     mkdir -p "$FINAL_BACKUP"
@@ -316,7 +335,23 @@ uninstall() {
     systemctl stop pterolite 2>/dev/null || true
     systemctl disable pterolite 2>/dev/null || true
     
-    log_step "Removing files and configurations..."
+    log_step "Removing Docker containers..."
+    # Stop and remove all PteroLite containers
+    containers=$(docker ps -a --format "{{.Names}}" 2>/dev/null | grep -E "^pterolite-|^ptero-" || true)
+    if [ ! -z "$containers" ]; then
+        echo "$containers" | xargs -r docker stop 2>/dev/null || true
+        echo "$containers" | xargs -r docker rm -f 2>/dev/null || true
+        log_info "Removed PteroLite containers"
+    fi
+    
+    log_step "Removing container data..."
+    # Remove container data folders
+    rm -rf /tmp/pterolite-containers 2>/dev/null || true
+    rm -rf /tmp/pterolite-files 2>/dev/null || true
+    rm -rf /tmp/pterolite-uploads 2>/dev/null || true
+    log_info "Removed container data folders"
+    
+    log_step "Removing application files..."
     
     # Remove backend
     if [[ -d "/opt/pterolite" ]]; then
@@ -350,9 +385,6 @@ uninstall() {
     
     log_success "PteroLite has been completely uninstalled!"
     log_info "Final backup saved at: $FINAL_BACKUP"
-    
-    echo ""
-    read -p "Press Enter to continue..."
 }
 
 # Manage services
