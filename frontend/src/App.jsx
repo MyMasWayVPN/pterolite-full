@@ -22,6 +22,8 @@ export default function App() {
 
   // Check authentication status on app load
   useEffect(() => {
+    let isMounted = true;
+    
     const checkAuth = async () => {
       try {
         // First check if we have a token in localStorage
@@ -37,35 +39,43 @@ export default function App() {
         // Check authentication status
         const response = await api.get('/auth/status');
         
-        if (response.data.authenticated) {
-          setUser(response.data.user);
-          setAuthToken(token || 'cookie-based');
-          
-          // Update saved user if different
-          localStorage.setItem('user', JSON.stringify(response.data.user));
-        } else {
-          // Not authenticated, clear storage
+        if (isMounted) {
+          if (response.data.authenticated) {
+            setUser(response.data.user);
+            setAuthToken(token || 'cookie-based');
+            
+            // Update saved user if different
+            localStorage.setItem('user', JSON.stringify(response.data.user));
+          } else {
+            // Not authenticated, clear storage
+            localStorage.removeItem('user');
+            localStorage.removeItem('pterolite_token');
+            delete api.defaults.headers.common['Authorization'];
+            setUser(null);
+            setAuthToken(null);
+          }
+          setAuthLoading(false);
+        }
+      } catch (error) {
+        console.error('Auth check failed:', error);
+        if (isMounted) {
+          // Clear invalid session
           localStorage.removeItem('user');
           localStorage.removeItem('pterolite_token');
           delete api.defaults.headers.common['Authorization'];
           setUser(null);
           setAuthToken(null);
+          setAuthLoading(false);
         }
-      } catch (error) {
-        console.error('Auth check failed:', error);
-        // Clear invalid session
-        localStorage.removeItem('user');
-        localStorage.removeItem('pterolite_token');
-        delete api.defaults.headers.common['Authorization'];
-        setUser(null);
-        setAuthToken(null);
       }
-      
-      setAuthLoading(false);
     };
 
     checkAuth();
-  }, []);
+    
+    return () => {
+      isMounted = false;
+    };
+  }, []); // Empty dependency array - only run once on mount
 
   // Handle login
   const handleLogin = (userData, token) => {
@@ -81,6 +91,7 @@ export default function App() {
     
     setUser(userData);
     setAuthToken(token || 'cookie-based');
+    setAuthLoading(false); // Ensure loading is false after login
   };
 
   // Handle logout
