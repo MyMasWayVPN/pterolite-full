@@ -456,6 +456,11 @@ app.post("/containers", webPanelAuth, async (req, res) => {
       containerConfig.ExposedPorts = {};
       containerConfig.ExposedPorts[`${port}/tcp`] = {};
       
+      // Initialize HostConfig if not exists
+      if (!containerConfig.HostConfig) {
+        containerConfig.HostConfig = {};
+      }
+      
       if (!containerConfig.HostConfig.PortBindings) {
         containerConfig.HostConfig.PortBindings = {};
       }
@@ -684,6 +689,11 @@ app.post("/api/containers", requireAuth, async (req, res) => {
     if (port) {
       containerConfig.ExposedPorts = {};
       containerConfig.ExposedPorts[`${port}/tcp`] = {};
+      
+      // Initialize HostConfig if not exists
+      if (!containerConfig.HostConfig) {
+        containerConfig.HostConfig = {};
+      }
       
       if (!containerConfig.HostConfig.PortBindings) {
         containerConfig.HostConfig.PortBindings = {};
