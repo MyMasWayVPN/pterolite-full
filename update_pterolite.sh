@@ -345,6 +345,13 @@ EOF
 
 # Check SSL certificate status
 check_ssl_status() {
+    # Skip SSL check for localhost mode
+    if [[ "$INSTALLATION_MODE" == "localhost" ]]; then
+        log_info "Localhost mode - skipping SSL certificate check"
+        SSL_STATUS="not_applicable"
+        return 0
+    fi
+    
     log_step "Checking SSL certificate status..."
     
     SSL_CERT_PATH="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
@@ -374,7 +381,19 @@ check_ssl_status() {
 
 # Function to add tunnel endpoints to nginx config
 update_nginx_tunnel_config() {
+    # Skip nginx tunnel config for localhost mode
+    if [[ "$INSTALLATION_MODE" == "localhost" ]]; then
+        log_info "Localhost mode - skipping nginx tunnel configuration"
+        return 0
+    fi
+    
     log_step "Adding Cloudflare Tunnel endpoints to nginx configuration..."
+    
+    # Check if nginx config file exists
+    if [[ ! -f "/etc/nginx/sites-available/pterolite.conf" ]]; then
+        log_warn "Nginx configuration file not found - skipping tunnel endpoint configuration"
+        return 0
+    fi
     
     # Check if tunnels endpoint already exists
     if grep -q "location /tunnels" /etc/nginx/sites-available/pterolite.conf 2>/dev/null; then
@@ -928,6 +947,12 @@ update_nginx_config() {
 
 # Fix or install SSL certificate
 fix_ssl_certificate() {
+    # Skip SSL for localhost mode
+    if [[ "$INSTALLATION_MODE" == "localhost" ]]; then
+        log_info "Localhost mode - skipping SSL certificate configuration"
+        return 0
+    fi
+    
     log_step "Fixing SSL certificate..."
     
     case $SSL_STATUS in
@@ -979,6 +1004,7 @@ start_services() {
     
     # Start PteroLite service
     systemctl start pterolite
+    systemctl restart pterolite
     systemctl enable pterolite
     
     # Check if service started successfully
@@ -1004,42 +1030,61 @@ start_services() {
 test_services() {
     log_step "Testing services..."
     
-    # Test backend API through nginx proxy
+    # Test backend API
     sleep 5
-    if [[ "$SSL_STATUS" == "valid" ]]; then
-        if curl -s -k "https://$DOMAIN/api/containers" >/dev/null 2>&1; then
-            log_info "✅ Backend API is responding (HTTPS)"
-        elif curl -s "http://localhost:8088/containers" >/dev/null 2>&1; then
-            log_info "✅ Backend API is responding (direct connection)"
+    if [[ "$INSTALLATION_MODE" == "localhost" ]]; then
+        # For localhost mode, test direct connection
+        if curl -s "http://localhost:8088/containers" >/dev/null 2>&1; then
+            log_info "✅ Backend API is responding (localhost:8088)"
         else
-            log_error "❌ Backend API is not responding"
+            log_error "❌ Backend API is not responding on localhost:8088"
+            return 1
+        fi
+        
+        # Test frontend (served by backend)
+        if curl -s -I "http://localhost:8088" | grep -q "HTTP/"; then
+            log_info "✅ Frontend is accessible (localhost:8088)"
+        else
+            log_error "❌ Frontend is not accessible on localhost:8088"
             return 1
         fi
     else
-        if curl -s "http://$DOMAIN/api/containers" >/dev/null 2>&1; then
-            log_info "✅ Backend API is responding (HTTP)"
-        elif curl -s "http://localhost:8088/containers" >/dev/null 2>&1; then
-            log_info "✅ Backend API is responding (direct connection)"
+        # For domain mode, test through nginx proxy
+        if [[ "$SSL_STATUS" == "valid" ]]; then
+            if curl -s -k "https://$DOMAIN/external-api/containers" >/dev/null 2>&1; then
+                log_info "✅ Backend API is responding (HTTPS)"
+            elif curl -s "http://localhost:8088/containers" >/dev/null 2>&1; then
+                log_info "✅ Backend API is responding (direct connection)"
+            else
+                log_error "❌ Backend API is not responding"
+                return 1
+            fi
         else
-            log_error "❌ Backend API is not responding"
-            return 1
+            if curl -s "http://$DOMAIN/external-api/containers" >/dev/null 2>&1; then
+                log_info "✅ Backend API is responding (HTTP)"
+            elif curl -s "http://localhost:8088/containers" >/dev/null 2>&1; then
+                log_info "✅ Backend API is responding (direct connection)"
+            else
+                log_error "❌ Backend API is not responding"
+                return 1
+            fi
         fi
-    fi
-    
-    # Test frontend
-    if [[ "$SSL_STATUS" == "valid" ]]; then
-        if curl -s -I "https://$DOMAIN" | grep -q "HTTP/"; then
-            log_info "✅ HTTPS frontend is accessible"
+        
+        # Test frontend
+        if [[ "$SSL_STATUS" == "valid" ]]; then
+            if curl -s -I "https://$DOMAIN" | grep -q "HTTP/"; then
+                log_info "✅ HTTPS frontend is accessible"
+            else
+                log_error "❌ HTTPS frontend is not accessible"
+                return 1
+            fi
         else
-            log_error "❌ HTTPS frontend is not accessible"
-            return 1
-        fi
-    else
-        if curl -s -I "http://$DOMAIN" | grep -q "HTTP/"; then
-            log_info "✅ HTTP frontend is accessible"
-        else
-            log_error "❌ HTTP frontend is not accessible"
-            return 1
+            if curl -s -I "http://$DOMAIN" | grep -q "HTTP/"; then
+                log_info "✅ HTTP frontend is accessible"
+            else
+                log_error "❌ HTTP frontend is not accessible"
+                return 1
+            fi
         fi
     fi
     
@@ -1061,7 +1106,13 @@ show_summary() {
     echo ""
     log_info "🌐 ACCESS INFORMATION:"
     echo "================================"
-    if [[ "$SSL_STATUS" == "valid" ]]; then
+    if [[ "$INSTALLATION_MODE" == "localhost" ]]; then
+        log_info "Web Panel: http://localhost:8088"
+        log_info "Web Panel (IP): http://$(hostname -I | awk '{print $1}'):8088"
+        log_info "API: http://localhost:8088/api"
+        log_info "API (IP): http://$(hostname -I | awk '{print $1}'):8088/api"
+        log_info "Mode: Localhost Only (Direct Port Access, No Nginx, No SSL)"
+    elif [[ "$SSL_STATUS" == "valid" ]]; then
         log_info "Web Panel HTTP: http://$DOMAIN"
         log_info "Web Panel HTTPS: https://$DOMAIN"
         log_info "API Eksternal HTTP: http://$DOMAIN/external-api"
