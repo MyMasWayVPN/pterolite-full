@@ -183,36 +183,45 @@ function App() {
             <div className="flex items-center space-x-4">
               <div className="text-center">
                 <span className="text-sm text-gray-400">Current Server:</span>
-                <div className="flex items-center space-x-2">
-                  <span className="text-white font-medium">
-                    {selectedContainer ? selectedContainer.Names[0].replace('/', '') : 'No Server'}
-                  </span>
-                  {selectedContainer && (
-                    <>
-                      <span className="px-2 py-1 bg-green-600 text-xs rounded text-white">running</span>
-                      <button
-                        onClick={handleBackToSelector}
-                        className="px-3 py-1 bg-blue-600 text-xs rounded text-white hover:bg-blue-700"
-                      >
-                        Change Server
-                      </button>
-                    </>
-                  )}
+                <div className="flex items-center space-x-3 mt-1">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-white font-medium text-lg">
+                      {selectedContainer ? selectedContainer.Names[0].replace('/', '') : 'No Server'}
+                    </span>
+                    {selectedContainer && (
+                      <span className="px-2 py-1 bg-green-600 text-xs rounded text-white font-medium">
+                        RUNNING
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={handleBackToSelector}
+                    className="px-4 py-2 bg-blue-600 text-sm rounded text-white hover:bg-blue-700 transition-colors font-medium border border-blue-500 hover:border-blue-400"
+                  >
+                    🔄 Change Server
+                  </button>
                 </div>
-                <div className="text-xs text-gray-500">
-                  Folder: {containerFolder}
+                <div className="text-xs text-gray-500 mt-1">
+                  Working Directory: {containerFolder}
                 </div>
               </div>
             </div>
 
-            {/* Right - Panel Info */}
+            {/* Right - Panel Info & User */}
             <div className="text-right">
               <div className="text-sm font-medium text-white">PteroLite Panel</div>
-              <div className="flex items-center space-x-2 text-xs">
-                <span className="text-red-400">No Authentication</span>
-                <span className="px-2 py-1 bg-green-600 rounded text-white">Open Access</span>
+              <div className="flex items-center justify-end space-x-2 text-xs mb-1">
+                <span className="text-green-400">Authenticated</span>
+                <span className="px-2 py-1 bg-blue-600 rounded text-white">User: {user.username}</span>
               </div>
-              <div className="text-xs text-gray-400">Direct container management</div>
+              <div className="flex items-center justify-end space-x-2">
+                <button
+                  onClick={handleLogout}
+                  className="px-3 py-1 bg-red-600 text-xs rounded text-white hover:bg-red-700 transition-colors"
+                >
+                  Logout
+                </button>
+              </div>
             </div>
           </div>
         </div>
