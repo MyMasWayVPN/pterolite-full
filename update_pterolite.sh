@@ -1144,7 +1144,7 @@ main() {
     echo ""
     
     check_root
-    get_domain
+    get_existing_installation_info
     detect_installation
     create_backup
     stop_services
